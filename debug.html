@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#fff} svg{width:100%;height:auto;display:block;border-bottom:1px solid #ddd}</style></head>
+<body><div id="out"></div>
+<script type="module">
+import { EXAMPLES } from '/src/examples.ts';
+import { standaloneSvg } from '/src/render/svg.ts';
+const q = new URLSearchParams(location.search);
+const i = parseInt(q.get('i') ?? '0', 10);
+const crop = q.get('crop');
+const ex = EXAMPLES[i];
+const d = await ex.build();
+let { svg } = standaloneSvg(d, { background: '#fff' });
+if (crop) { svg = svg.replace(/viewBox="[^"]*"/, `viewBox="${crop}"`); }
+document.getElementById('out').innerHTML = `<p style="font:14px sans-serif;margin:4px">${ex.name}</p>` + svg;
+window.__ready = true;
+</script></body></html>

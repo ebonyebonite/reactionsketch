@@ -1,0 +1,8 @@
+node_modules/
+dist/
+deploy/
+src-tauri/target/
+*.log
+.DS_Store
+deploy_target.txt
+.claude/

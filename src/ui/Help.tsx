@@ -1,0 +1,61 @@
+// 使い方 (ショートカット一覧)
+import { setState, useStore } from '../editor/store';
+
+const ROWS: [string, string][] = [
+  ['V / E', '選択 / 消しゴム'],
+  ['1 2 3 / W H Y', '単・二重・三重結合 / くさび・破線くさび・波線'],
+  ['C', '炭素鎖 (ドラッグ)'],
+  ['B / 4 5 6 7 8', 'ベンゼン環 / 四〜八員環'],
+  ['A / F', '曲がった矢印 (電子対 / 1 電子)'],
+  ['R / P', '反応矢印 / ＋記号'],
+  ['T / N / K', '文字 / 化合物番号 / 括弧 (‡)'],
+  ['原子の上で C N O S P F H I', '元素を変更 (L = Cl, B = Br, M = Me, E = Et, Y = Ph)'],
+  ['原子の上で + - 0', '電荷 (0 で解除)'],
+  ['原子の上で : / .', '非共有電子対 / ラジカル'],
+  ['原子の上で Enter', 'ラベルを入力 (OMe, CO2Et, NHBoc …)'],
+  ['結合の上で 1 2 3 W H Y', '次数・立体を変更 (くさびの上でもう一度 W で向きを反転)'],
+  ['結合の上で D / R', '二重線の位置を切り替え / 向きを反転'],
+  ['Delete', '選択範囲 (なければカーソル下) を削除'],
+  ['Ctrl+C / Ctrl+X / Ctrl+V', 'コピー (PNG も同時にコピー) / 切り取り / 貼り付け (SMILES・Molfile も可)'],
+  ['Ctrl+D', '選択範囲を複製'],
+  ['Ctrl+F', '名前・SMILES から構造を追加'],
+  ['Ctrl+L', '反応式を自動で並べる'],
+  ['Ctrl+Shift+K', '構造を整える (自動配置)'],
+  ['Ctrl+Z / Ctrl+Y', '元に戻す / やり直す'],
+  ['Ctrl+S / Ctrl+O', 'すべてのタブを保存 / 開く'],
+  ['Ctrl+T', '新しいタブ'],
+  ['Ctrl+0 / Ctrl+ホイール', '全体を表示 / 拡大縮小'],
+  ['スペース+ドラッグ・右ドラッグ・2 本指', '画面の移動'],
+  ['矢印キー', '選択範囲を少し動かす (Shift で大きく)'],
+];
+
+export function Help() {
+  const open = useStore((s) => s.helpOpen);
+  if (!open) return null;
+  const close = () => setState({ helpOpen: false });
+  return (
+    <div className="modal-back" onClick={close}>
+      <div className="modal" role="dialog" aria-label="使い方" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>使い方</h2>
+          <button className="mini" onClick={close}>閉じる</button>
+        </div>
+        <p>
+          反応機構は「曲がった矢印」ツール (A) で、電子の出どころ (非共有電子対のある原子・結合) から行き先 (原子・結合) へドラッグします。
+          矢印は分子と一緒に動き、中央の ○ をドラッグすると曲がり具合を変えられます。反応矢印 (R) を置くと、そのまま上下に条件を入力できます。
+        </p>
+        <table className="keys">
+          <tbody>
+            {ROWS.map(([k, v]) => (
+              <tr key={k}>
+                <th>{k}</th>
+                <td>{v}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="tip">作業内容はブラウザに自動で保存されます。別の PC に移すときは「ファイル → すべてのタブを保存」で .rsketch ファイルを作ってください。</p>
+      </div>
+    </div>
+  );
+}

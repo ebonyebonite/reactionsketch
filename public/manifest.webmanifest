@@ -1,0 +1,10 @@
+{
+  "name": "ReactionSketch",
+  "short_name": "ReactionSketch",
+  "description": "有機化学のレポート向け 構造式・反応機構エディタ",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1f2937",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

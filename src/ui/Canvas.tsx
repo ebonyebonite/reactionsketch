@@ -27,7 +27,7 @@ type Drag =
   | { kind: 'pan'; sx: number; sy: number; ox: number; oy: number; right?: boolean }
   | { kind: 'pinch'; d0: number; z0: number; cx: number; cy: number; ox: number; oy: number }
   | { kind: 'rubber'; start: Pt; cur: Pt; additive: boolean }
-  | { kind: 'move'; start: Pt; base: Doc; sel: Selection; moved: boolean }
+  | { kind: 'move'; start: Pt; base: Doc; sel: Selection; moved: boolean; narrow?: Selection }
   | { kind: 'bond'; startAtom: Id | null; start: Pt; cur: Pt; moved: boolean; downHover: Hover | null }
   | { kind: 'chain'; startAtom: Id | null; start: Pt; cur: Pt }
   | { kind: 'curved'; from: Anchor; fromPt: Pt; cur: Pt; target: Hover | null }
@@ -40,6 +40,13 @@ const SNAP = Math.PI / 12; // 15° 刻み (結合は 30° 刻み)
 
 function snapAngle(a: number, step: number): number {
   return Math.round(a / step) * step;
+}
+
+/** 結合の両端のうち、p に近い方の原子 */
+function nearerEnd(d: Doc, bondId: Id, p: Pt): Id {
+  const b = d.bonds[bondId];
+  const A = d.atoms[b.a1], B = d.atoms[b.a2];
+  return Math.hypot(A.x - p.x, A.y - p.y) <= Math.hypot(B.x - p.x, B.y - p.y) ? b.a1 : b.a2;
 }
 
 export function Canvas() {
@@ -65,10 +72,15 @@ export function Canvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag>({ kind: 'none' });
   const dragRef = useRef<Drag>({ kind: 'none' });
+  // 画面に触れている指 (タッチのみ。ペン・マウスはピンチに数えない)
   const pointers = useRef(new Map<number, Pt>());
   const [pointer, setPointer] = useState<Pt | null>(null);
   const spaceDown = useRef(false);
   const lastTap = useRef<{ t: number; x: number; y: number }>({ t: 0, x: 0, y: 0 });
+  // 最後にタッチ・ペンで触れた時刻 (iOS が後から送ってくる dblclick を無視するため)
+  const lastTouchAt = useRef(0);
+  // Apple Pencil で描いている間は手のひらのタッチを無視する
+  const penDown = useRef<number | null>(null);
 
   const setD = (d: Drag) => {
     dragRef.current = d;
@@ -180,12 +192,20 @@ export function Canvas() {
       // 編集中のテキストを確定させる (input の blur で処理)
       (document.activeElement as HTMLElement | null)?.blur();
     }
+    const touchLike = e.pointerType === 'touch' || e.pointerType === 'pen';
+    if (touchLike) lastTouchAt.current = performance.now();
+    if (e.pointerType === 'touch' && penDown.current !== null) return;
+    if (e.pointerType === 'pen') penDown.current = e.pointerId;
     svgRef.current?.setPointerCapture(e.pointerId);
     const p = toDoc(e.clientX, e.clientY);
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // 1 本目の指 (isPrimary) なら、取りこぼした古い指の記録を捨てる
+    // (残っていると 1 本指でも 2 本指のピンチと誤認する)
+    if (e.pointerType !== 'touch' || e.isPrimary) pointers.current.clear();
+    if (e.pointerType === 'touch') pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const v = activeTab().view;
 
-    if (pointers.current.size === 2) {
+    if (pointers.current.size >= 2) {
+      if (pointers.current.size > 2) return;
       // 2 本指: ピンチズーム / パン (描きかけは取り消す)
       cancelTransient();
       const [a, b] = [...pointers.current.values()];
@@ -197,10 +217,12 @@ export function Canvas() {
       setD({ kind: 'pan', sx: e.clientX, sy: e.clientY, ox: v.ox, oy: v.oy, right: e.button === 2 });
       return;
     }
-    // ダブルタップ (タッチ) の判定
+    const t = getState().tool;
+    // ダブルタップ (タッチ) で文字を編集するのは選択ツールのときだけ。
+    // 描画中の素早い連続タップ (結合を 2 回タップして二重結合など) を邪魔しない
     const now = performance.now();
-    const isDouble = e.pointerType !== 'mouse' && now - lastTap.current.t < 350 && Math.hypot(e.clientX - lastTap.current.x, e.clientY - lastTap.current.y) < 20;
-    lastTap.current = { t: now, x: e.clientX, y: e.clientY };
+    const isDouble = touchLike && t.kind === 'select' && now - lastTap.current.t < 350 && Math.hypot(e.clientX - lastTap.current.x, e.clientY - lastTap.current.y) < 20;
+    lastTap.current = isDouble ? { t: 0, x: 0, y: 0 } : { t: now, x: e.clientX, y: e.clientY };
     if (isDouble) {
       startEditingAt(p);
       return;
@@ -208,8 +230,7 @@ export function Canvas() {
 
     const d = activeTab().doc;
     const sc = buildScene(d);
-    const t = getState().tool;
-    const h = hitTest(d, sc, p.x, p.y, tol(e.pointerType === 'touch' ? 16 : 9), hitOpts());
+    const h = hitTest(d, sc, p.x, p.y, tol(touchLike ? 16 : 9), hitOpts());
     setState({ hover: h });
 
     if (h?.kind === 'handle') {
@@ -237,7 +258,13 @@ export function Canvas() {
             sel = e.shiftKey ? mergeSel(s, picked) : picked;
             setState({ selection: sel });
           }
-          setD({ kind: 'move', start: p, base: d, sel, moved: false });
+          // 選択済みの分子をもう一度タップしたら、その原子・結合だけを選ぶ (Alt キーがないタッチ向け)
+          let narrow: Selection | undefined;
+          if (inSel && !e.shiftKey && h.kind !== 'object' && s.atoms.size + s.bonds.size > 1) {
+            narrow = emptySelection();
+            (h.kind === 'atom' ? narrow.atoms : narrow.bonds).add(h.id);
+          }
+          setD({ kind: 'move', start: p, base: d, sel, moved: false, narrow });
         } else {
           if (!e.shiftKey) setState({ selection: emptySelection() });
           setD({ kind: 'rubber', start: p, cur: p, additive: e.shiftKey });
@@ -340,8 +367,10 @@ export function Canvas() {
         return;
       }
       case 'element': {
-        if (h?.kind === 'atom') {
-          const a = d.atoms[h.id];
+        // 結合に当たったら、タップ位置に近い方の端の原子を置き換える
+        const atomHit = h?.kind === 'bond' ? nearerEnd(d, h.id, p) : h?.kind === 'atom' ? h.id : null;
+        if (atomHit) {
+          const a = d.atoms[atomHit];
           const { label: _l, hCount: _h, ...rest } = a;
           void _l; void _h;
           commit({ ...d, atoms: { ...d.atoms, [a.id]: { ...rest, element: t.element } } });
@@ -354,6 +383,7 @@ export function Canvas() {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && penDown.current !== null) return;
     if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const p = toDoc(e.clientX, e.clientY);
     setPointer(p);
@@ -451,6 +481,12 @@ export function Canvas() {
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === 'pen' && penDown.current === e.pointerId) penDown.current = null;
+    else if (e.pointerType === 'touch' && penDown.current !== null) return;
+    if (e.pointerType === 'touch' && !pointers.current.has(e.pointerId)) {
+      // ピンチの 3 本目など、数えていない指
+      return;
+    }
     pointers.current.delete(e.pointerId);
     const dr = dragRef.current;
     const p = toDoc(e.clientX, e.clientY);
@@ -492,6 +528,7 @@ export function Canvas() {
       case 'move': {
         if (!dr.moved) {
           // クリックだけ: ダブルクリックは onDoubleClick で処理
+          if (dr.narrow) setState({ selection: dr.narrow });
           return;
         }
         const movedAtoms = selectedAtomIds(d, dr.sel);
@@ -700,6 +737,8 @@ export function Canvas() {
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
+    // タッチ・ペンのダブルタップは onPointerDown で処理済み (iOS は dblclick も送ってくる)
+    if (performance.now() - lastTouchAt.current < 1000) return;
     const p = toDoc(e.clientX, e.clientY);
     startEditingAt(p);
   };
@@ -846,6 +885,9 @@ export function Canvas() {
         onPointerUp={onPointerUp}
         onPointerCancel={(e) => {
           pointers.current.delete(e.pointerId);
+          if (e.pointerType === 'pen' && penDown.current === e.pointerId) penDown.current = null;
+          // ペンで描いている最中の手のひらのキャンセルでは、描きかけを消さない
+          else if (e.pointerType === 'touch' && penDown.current !== null) return;
           cancelTransient();
           setD({ kind: 'none' });
         }}

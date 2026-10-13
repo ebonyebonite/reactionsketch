@@ -23,6 +23,11 @@ export interface HitOptions {
   objects?: boolean;
 }
 
+function inLabel(doc: Doc, scene: Scene, id: Id, x: number, y: number): boolean {
+  const l = scene.layouts[id];
+  return !!(doc.atoms[id] && l?.visible && l.clip && inBox(x, y, l.clip));
+}
+
 /** tol は doc 座標での許容距離 */
 export function hitTest(doc: Doc, scene: Scene, x: number, y: number, tol: number, opts: HitOptions = {}): Hover | null {
   const { atoms = true, bonds = true, objects = true } = opts;
@@ -58,7 +63,24 @@ export function hitTest(doc: Doc, scene: Scene, x: number, y: number, tol: numbe
         best = a.id;
       }
     }
-    if (best) return { kind: 'atom', id: best };
+    if (best) {
+      // タッチなど許容距離が大きいと、結合の真ん中を押しても端の原子に当たってしまう。
+      // 結合の中ほど (両端から 1/4 以上離れた所) にもっと近ければ結合を優先する
+      if (bonds && !inLabel(doc, scene, best, x, y)) {
+        for (const b of Object.values(doc.bonds)) {
+          const A = doc.atoms[b.a1], B = doc.atoms[b.a2];
+          if (!A || !B) continue;
+          const dx = B.x - A.x, dy = B.y - A.y;
+          const l2 = dx * dx + dy * dy;
+          if (!l2) continue;
+          const t = ((x - A.x) * dx + (y - A.y) * dy) / l2;
+          if (t < 0.25 || t > 0.75) continue;
+          const d = distToSeg(x, y, A.x, A.y, B.x, B.y);
+          if (d < tol * 0.9 && d < bd) return { kind: 'bond', id: b.id };
+        }
+      }
+      return { kind: 'atom', id: best };
+    }
   }
   if (bonds) {
     let best: Id | null = null;

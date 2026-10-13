@@ -1,5 +1,7 @@
 // オフラインでも使える化合物辞書 (日本語名・英語名・略号 → SMILES)
 // 有機化学の実験・レポートでよく出てくる化合物・試薬・溶媒を収録。
+import { POLYMERS } from './polymers';
+
 export interface DictEntry {
   names: string[];
   smiles: string;
@@ -188,8 +190,10 @@ function normalize(s: string): string {
     .replace(/[‐-‒–—―−]/g, '-');
 }
 
+const ALL_ENTRIES = [...POLYMERS, ...DICTIONARY];
 const INDEX = new Map<string, DictEntry>();
-for (const e of DICTIONARY) for (const n of e.names) INDEX.set(normalize(n), e);
+// 同じ名前が両方にあれば低分子の辞書を優先する
+for (const e of ALL_ENTRIES) for (const n of e.names) INDEX.set(normalize(n), e);
 
 export function lookupDictionary(name: string): DictEntry | undefined {
   return INDEX.get(normalize(name));
@@ -201,7 +205,7 @@ export function suggestDictionary(prefix: string, limit = 8): { name: string; en
   if (!p) return [];
   const out: { name: string; entry: DictEntry }[] = [];
   const seen = new Set<DictEntry>();
-  for (const e of DICTIONARY) {
+  for (const e of [...DICTIONARY, ...POLYMERS]) {
     for (const n of e.names) {
       if (normalize(n).startsWith(p) && !seen.has(e)) {
         out.push({ name: n, entry: e });

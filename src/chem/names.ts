@@ -4,6 +4,7 @@
 //   3. 日本語名 → Wikidata
 //   4. IUPAC 名 → OPSIN (EBI)、慣用名・CAS 番号 → PubChem
 import { lookupDictionary } from './dictionary';
+import { monomerNameOf } from './polymers';
 import { isValidSmiles } from './rdkit';
 
 export interface NameResult {
@@ -11,6 +12,8 @@ export interface NameResult {
   structure: string;
   source: string;
   title?: string;
+  /** structure はモノマー。C=C を開いて繰り返し単位にする (「ポリ○○」で辞書にないとき) */
+  polymerize?: boolean;
 }
 
 const hasJapanese = (s: string) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(s);
@@ -98,8 +101,23 @@ export async function nameFromSmiles(smiles: string): Promise<{ iupac?: string; 
   }
 }
 
-export async function searchStructure(query: string): Promise<NameResult> {
+/**
+ * 名前・SMILES から構造を探す。「ポリ○○」で高分子の辞書にないものは、まずモノマー ○○ を探して
+ * polymerize: true で返す (呼び出し側で C=C を開く)。重合できなければ通常の検索に戻す。
+ */
+export async function searchStructure(query: string, canPolymerize?: (smiles: string) => Promise<boolean>): Promise<NameResult> {
   const q = query.trim();
+  const monomer = canPolymerize && !lookupDictionary(q) ? monomerNameOf(q) : null;
+  if (monomer) {
+    const m = await searchStructure(monomer).catch(() => null);
+    if (m && (await canPolymerize!(m.structure).catch(() => false))) {
+      return { ...m, polymerize: true, source: `${m.source} のモノマー「${m.title ?? monomer}」`, title: q };
+    }
+  }
+  return searchPlain(q);
+}
+
+async function searchPlain(q: string): Promise<NameResult> {
   if (!q) throw new Error('名前・SMILES を入力してください');
   const dict = lookupDictionary(q);
   if (dict) return { structure: dict.smiles, source: '内蔵辞書', title: dict.names[0] };

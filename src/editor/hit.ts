@@ -1,5 +1,5 @@
 // 当たり判定 (ポインタの下にある原子・結合・オブジェクト・ハンドル)
-import type { Doc, Id } from '../model/types';
+import type { Anchor, Doc, Id } from '../model/types';
 import type { Scene } from '../render/scene';
 import { bracketPath } from '../render/scene';
 import type { Hover } from './store';
@@ -170,4 +170,28 @@ export function itemsInRect(doc: Doc, scene: Scene, x1: number, y1: number, x2: 
     if (inside) objects.add(id);
   }
   return { atoms, bonds, objects };
+}
+
+/** 曲がった矢印の端にできる文字 (反応矢印の上下の試薬・テキスト枠) */
+export function textAnchorAt(doc: Doc, scene: Scene, x: number, y: number, pad = 2): Anchor | null {
+  const frac = (b: { x1: number; y1: number; x2: number; y2: number }) => ({
+    fx: Math.max(0, Math.min(1, (x - b.x1) / Math.max(1, b.x2 - b.x1))),
+    fy: Math.max(0, Math.min(1, (y - b.y1) / Math.max(1, b.y2 - b.y1))),
+  });
+  for (let i = doc.order.length - 1; i >= 0; i--) {
+    const id = doc.order[i];
+    const o = doc.objects[id];
+    if (o?.type === 'reaction') {
+      const r = scene.reaction[id];
+      if (!r) continue;
+      for (const part of ['above', 'below'] as const) {
+        const g = r[part];
+        if (g.lines.length && inBox(x, y, g.bbox, pad)) return { kind: 'text', obj: id, part, ...frac(g.bbox) };
+      }
+    } else if (o?.type === 'text') {
+      const g = scene.texts[id];
+      if (g && g.lines.length && inBox(x, y, g.bbox, pad)) return { kind: 'text', obj: id, part: 'body', ...frac(g.bbox) };
+    }
+  }
+  return null;
 }

@@ -1,7 +1,7 @@
 // 上部バー: 構造の検索・ファイル・書き出し・編集操作
 import { useEffect, useRef, useState } from 'react';
 import { activeTab, addTab, getState, redo, setState, toast, toProject, undo, useStore } from '../editor/store';
-import { addReactionFromQuery, addStructureFromQuery, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment } from '../editor/actions';
+import { addReactionFromQuery, addStructureFromQuery, alignReactionAtoms, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment, proposeMechanismForScheme } from '../editor/actions';
 import { suggestDictionary } from '../chem/dictionary';
 import { reactionQuery, searchReactions } from '../chem/reactions';
 import { copyPng, exportTarget, isEmpty, projectBlob, renderPdf, renderPng, safeFilename, saveBlob, svgString, cdxmlString, copyText } from '../io/export';
@@ -22,7 +22,7 @@ export function SearchBox() {
   // 「r 反応名」は反応の検索
   const rq = reactionQuery(q);
   const sugg: { name: string; alt: string; submit: string }[] = rq !== null
-    ? (/->|→|>|=>|⇒/.test(rq) ? [] : searchReactions(rq, 8).map((s) => ({ name: s.name, alt: s.reaction.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: `r ${s.reaction.names[0]}` })))
+    ? (/->|→|>|=>|⇒/.test(rq) ? [] : reactionSuggestions(rq))
     : q.trim()
       ? suggestDictionary(q, 8).map((s) => ({ name: s.name, alt: s.entry.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: s.name }))
       : [];
@@ -99,6 +99,14 @@ export function SearchBox() {
       )}
     </div>
   );
+}
+
+/** 「r 反応名」の候補。内蔵辞書に完全一致がなければ、ネットで探す候補も出す */
+function reactionSuggestions(rq: string): { name: string; alt: string; submit: string }[] {
+  const hits = searchReactions(rq, 8);
+  const out = hits.map((s) => ({ name: s.name, alt: s.reaction.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: `r ${s.reaction.names[0]}` }));
+  if (rq.trim().length >= 2 && !hits.some((h) => h.score === 3)) out.push({ name: `「${rq.trim()}」をネットで探す`, alt: 'Wikidata・Wikipedia', submit: `r online:${rq.trim()}` });
+  return out;
 }
 
 function Menu({ label, icon, className = '', children }: { label: string; icon: React.ReactNode; className?: string; children: React.ReactNode }) {
@@ -210,6 +218,7 @@ export function TopBar() {
         <button className="top-btn wide-only" onClick={cleanStructure} title="構造を整える (Ctrl+Shift+K)">{Icons.clean}<span className="lbl">整える</span></button>
         <button className="top-btn wide-only" onClick={autoLayoutScheme} title="反応式を自動で並べる (Ctrl+L)">{Icons.layout}<span className="lbl">整列</span></button>
         <button className="top-btn wide-only" onClick={applyArrowsToNext} title="曲がった矢印を適用して次の構造を作る (Ctrl+Enter)。選んだ矢印だけにも適用できます">{Icons.next}<span className="lbl">次の構造</span></button>
+        <button className="top-btn wide-only" onClick={proposeMechanismForScheme} title="反応式 (原料 → 生成物) から反応機構を提案して、下に置く">{Icons.next}<span className="lbl">機構を提案</span></button>
         <button className="top-btn wide-only" onClick={() => setState({ reagentsOpen: true })} title="試薬表・収率計算">{Icons.table}<span className="lbl">試薬表</span></button>
         <button className="top-btn primary" onClick={run(() => exportCurrent('copy-png'))} title="PNG をコピー (Ctrl+C)">{Icons.copy}<span className="lbl">PNG コピー</span></button>
         <Menu label="ファイル" icon={Icons.save}>
@@ -252,6 +261,8 @@ export function TopBar() {
           <MenuItem onClick={cleanStructure} kbd="Ctrl+Shift+K">構造を整える</MenuItem>
           <MenuItem onClick={autoLayoutScheme} kbd="Ctrl+L">反応式を自動で並べる</MenuItem>
           <MenuItem onClick={applyArrowsToNext} kbd="Ctrl+Enter">次の構造を作る</MenuItem>
+          <MenuItem onClick={proposeMechanismForScheme}>反応機構を提案</MenuItem>
+          <MenuItem onClick={alignReactionAtoms}>反応前後の原子の位置をそろえる</MenuItem>
           <MenuItem onClick={() => setState({ reagentsOpen: true })}>試薬表・収率計算</MenuItem>
           <hr />
           <MenuItem onClick={() => setState({ helpOpen: true })}>使い方</MenuItem>

@@ -1,7 +1,8 @@
 // 曲がった矢印 (円弧) と反応矢印の形状計算
 import type { Anchor, CurvedArrow, Doc, ReactionArrow } from '../model/types';
 import { ACS } from '../model/style';
-import type { AtomLayout } from './labels';
+import type { AtomLayout, Box } from './labels';
+import { textAnchorBox } from './scene';
 
 export interface Pt {
   x: number;
@@ -38,7 +39,43 @@ export function anchorPos(doc: Doc, a: Anchor, layouts: Record<string, AtomLayou
     }
     case 'free':
       return { x: a.x, y: a.y, gap: 0 };
+    case 'text': {
+      const b = textAnchorBox(doc, a.obj, a.part, layouts);
+      if (!b) return null;
+      return { x: b.x1 + (b.x2 - b.x1) * a.fx, y: b.y1 + (b.y2 - b.y1) * a.fy, gap: 0 };
+    }
   }
+}
+
+/** 文字の中の点から、相手の方向へ文字の枠の外に出たところ */
+function exitBox(p: Pt, toward: Pt, b: Box, margin: number): Pt {
+  const dx = toward.x - p.x, dy = toward.y - p.y;
+  let t = Infinity;
+  if (dx > 1e-9) t = Math.min(t, (b.x2 - p.x) / dx);
+  if (dx < -1e-9) t = Math.min(t, (b.x1 - p.x) / dx);
+  if (dy > 1e-9) t = Math.min(t, (b.y2 - p.y) / dy);
+  if (dy < -1e-9) t = Math.min(t, (b.y1 - p.y) / dy);
+  if (!isFinite(t)) return p;
+  const L = Math.hypot(dx, dy) || 1;
+  t = Math.max(0, Math.min(1, t + margin / L));
+  return { x: p.x + dx * t, y: p.y + dy * t };
+}
+
+/** 曲がった矢印の両端 (文字を指す端は、文字に重ならないよう枠の外へ出す) */
+export function curvedEnds(doc: Doc, from: Anchor, to: Anchor, layouts: Record<string, AtomLayout> | null): [AnchorPos, AnchorPos] | null {
+  let p0 = anchorPos(doc, from, layouts, false);
+  let p2 = anchorPos(doc, to, layouts, true);
+  if (!p0 || !p2) return null;
+  const q0 = p0, q2 = p2;
+  if (from.kind === 'text') {
+    const b = textAnchorBox(doc, from.obj, from.part, layouts);
+    if (b) p0 = { ...exitBox(q0, q2, b, 1.2), gap: 0 };
+  }
+  if (to.kind === 'text') {
+    const b = textAnchorBox(doc, to.obj, to.part, layouts);
+    if (b) p2 = { ...exitBox(q2, q0, b, 1.5), gap: 0 };
+  }
+  return [p0, p2];
 }
 
 export interface ArcGeom {
@@ -148,9 +185,9 @@ export function arrowHead(tip: Pt, dir: Pt, kind: 'full' | 'half' | 'halfUpper' 
 }
 
 export function curvedArrowGeom(doc: Doc, arrow: CurvedArrow, layouts: Record<string, AtomLayout> | null): ArcGeom | null {
-  const p0 = anchorPos(doc, arrow.from, layouts, false);
-  const p2 = anchorPos(doc, arrow.to, layouts, true);
-  if (!p0 || !p2) return null;
+  const ends = curvedEnds(doc, arrow.from, arrow.to, layouts);
+  if (!ends) return null;
+  const [p0, p2] = ends;
   const own = ownBondCase(doc, arrow, layouts, p0, p2);
   if (own) return arcThrough(own.p0, own.p2, own.bend);
   return arcThrough(p0, p2, arrow.bend);

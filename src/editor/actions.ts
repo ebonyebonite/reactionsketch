@@ -246,11 +246,31 @@ export async function addReactionFromQuery(query: string, at?: { x: number; y: n
       const srcs = [...new Set(found.map((f) => f.source))].join('・');
       msg = `${srcs} から反応式を作りました`;
     } else {
-      const hit = searchReactions(q, 1)[0];
-      if (!hit) throw new Error(`反応「${q}」は内蔵辞書にありません。「r 原料 + 原料 -> 生成物 ; 試薬」の形なら化合物名から作れます`);
-      const r = hit.reaction;
-      frag = await buildReactionDoc(r.reactants, r.products, r.above, r.below);
-      msg = `${r.names[0]} を追加しました`;
+      const forceOnline = q.startsWith('online:');
+      const name = q.replace(/^online:/, '').trim();
+      const hit = forceOnline ? undefined : searchReactions(name, 1)[0];
+      if (hit && hit.score >= 2) {
+        const r = hit.reaction;
+        frag = await buildReactionDoc(r.reactants, r.products, r.above, r.below);
+        msg = `${r.names[0]} を追加しました`;
+      } else {
+        // 内蔵辞書にない (部分一致しかない) 反応名は、ネットで探す
+        setState({ busy: `反応「${name.slice(0, 30)}」をネットで探しています…` });
+        const { searchReactionOnline } = await import('../chem/reactionsOnline');
+        const on = await searchReactionOnline(name).catch(() => null);
+        if (on) {
+          frag = await buildReactionDoc(on.reactants, on.products, on.above, '');
+          msg = on.names
+            ? `${on.title}: ${on.source}から読み取った反応式です (${on.names.reactants.join('・')} → ${on.names.products.join('・')})。正しいか確認してください`
+            : `${on.title} を ${on.source} から追加しました`;
+        } else if (hit) {
+          const r = hit.reaction;
+          frag = await buildReactionDoc(r.reactants, r.products, r.above, r.below);
+          msg = `ネットでは見つからなかったので、内蔵辞書の ${r.names[0]} を追加しました`;
+        } else {
+          throw new Error(`反応「${name}」は内蔵辞書にもネット (Wikidata・Wikipedia) にも見つかりませんでした。「r 原料 + 原料 -> 生成物 ; 試薬」の形なら化合物名から作れます`);
+        }
+      }
     }
     placeFragment(frag, at);
     toast(msg);
@@ -688,4 +708,66 @@ export async function polymerizeSelected(): Promise<void> {
   commit(withObject(placed, br), sel);
   ensureVisible(arrow.x2 + 12 + (ub.x2 - ub.x1) / 2, cy, ub.x2 - ub.x1);
   toast('繰り返し単位を作りました。矢印の上下に開始剤・条件を書けます');
+}
+
+// ---- 反応機構の提案・原子の位置合わせ ----
+
+/** 選んだ反応矢印 (なければ最初の反応矢印) */
+function selectedReactionArrowId(d: Doc): Id | undefined {
+  return [...getState().selection.objects].find((id) => d.objects[id]?.type === 'reaction');
+}
+
+/** 反応式の生成物の向き・原子の位置を原料にそろえる */
+export async function alignReactionAtoms(): Promise<void> {
+  const d = doc();
+  const { findScheme, alignSchemeProducts } = await import('../chem/propose');
+  const sc = findScheme(d, selectedReactionArrowId(d));
+  if (!sc || !sc.left.length || !sc.right.length) {
+    toast('反応矢印の左右に原料と生成物を描いてください', 'error');
+    return;
+  }
+  setState({ busy: '原子の対応を調べています…' });
+  try {
+    commit(await alignSchemeProducts(d, sc));
+    toast('生成物の原子の位置を原料にそろえました');
+  } catch (e) {
+    toast((e as Error).message, 'error');
+  } finally {
+    setState({ busy: null });
+  }
+}
+
+/** 反応式から反応機構 (曲がった矢印つき) を提案し、反応式の下に置く */
+export async function proposeMechanismForScheme(): Promise<void> {
+  const d = doc();
+  const { findScheme, proposeMechanism } = await import('../chem/propose');
+  const sc = findScheme(d, selectedReactionArrowId(d));
+  if (!sc || !sc.left.length || !sc.right.length) {
+    toast('反応矢印の左右に原料と生成物を描いてください (r 反応名 で置いた式でも使えます)', 'error');
+    return;
+  }
+  setState({ busy: '反応機構を考えています…' });
+  try {
+    const r = await proposeMechanism(d, sc);
+    const scene = buildScene(d);
+    const rb = buildScene(r.doc).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+    const all = scene.bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+    const titleY = all.y2 + 24;
+    const caption: TextBox = {
+      id: newId('o'), type: 'text', x: all.x1, y: titleY, size: ACS.captionSize, align: 'left', bold: true,
+      text: r.generic ? '反応機構の案 (1 段階で表した場合)' : `反応機構: ${r.title}`,
+    };
+    const dx = all.x1 - rb.x1, dy = titleY + 14 - rb.y1;
+    const { doc: next, sel } = insertFragment(withObject(d, caption), r.doc, dx, dy);
+    sel.objects.add(caption.id);
+    commit(next, sel);
+    ensureVisible(all.x1 + (rb.x2 - rb.x1) / 2, titleY + 14 + (rb.y2 - rb.y1) / 2, rb.x2 - rb.x1);
+    if (r.inexact) toast('矢印を適用しても次の構造と一致しない段階があります。矢印を確認してください', 'error');
+    else if (r.generic) toast('内蔵の機構がない反応なので、原料から生成物への電子の動きを 1 段階の矢印で表しました (実際は多段階のこともあります)');
+    else toast(`反応機構 (${r.steps} 段階) を置きました`);
+  } catch (e) {
+    toast((e as Error).message, 'error');
+  } finally {
+    setState({ busy: null });
+  }
 }

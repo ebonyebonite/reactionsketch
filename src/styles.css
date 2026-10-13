@@ -235,7 +235,8 @@ kbd {
 
   .topbar {
     flex-wrap: wrap; gap: 4px 6px;
-    padding: calc(4px + env(safe-area-inset-top)) calc(6px + env(safe-area-inset-right)) 6px calc(6px + env(safe-area-inset-left));
+    /* ダイナミックアイランド・ノッチの下に余白を取る (iOS は上端を半透明に重ねるため env() ぴったりだと窮屈) */
+    padding: calc(4px + env(safe-area-inset-top) * 1.25) calc(6px + env(safe-area-inset-right)) 6px calc(6px + env(safe-area-inset-left));
   }
   .brand span { display: none; }
   .search { order: 3; flex-basis: 100%; min-width: 0; max-width: none; }
@@ -247,7 +248,7 @@ kbd {
   .top-btn .lbl { display: none; }
   /* 横スクロールする親に切り取られないよう、メニューは画面基準で出す */
   .menu-pop {
-    position: fixed; left: 8px; right: 8px; top: calc(46px + env(safe-area-inset-top));
+    position: fixed; left: 8px; right: 8px; top: calc(46px + env(safe-area-inset-top) * 1.25);
     min-width: 0; max-height: 70dvh; overflow-y: auto;
   }
   .menu-item { padding: 10px 12px; }

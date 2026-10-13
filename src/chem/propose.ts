@@ -559,6 +559,8 @@ export interface MechanismResult {
   steps: number;
   /** 矢印を適用しても次の状態にならない段階がある */
   inexact?: number;
+  /** 足りない元素を補うために加えた、矢印の上下の試薬 */
+  added?: string[];
 }
 
 /** 内蔵の機構データから図を作る */
@@ -622,6 +624,8 @@ export interface Scheme {
   arrow: ReactionArrow;
   left: Id[][];
   right: Id[][];
+  /** 矢印の上下に構造式で描いた試薬 */
+  reagents: Id[][];
 }
 
 /** 反応矢印の左右の分子 (同じ行で、隣の矢印までのもの) */
@@ -634,17 +638,22 @@ export function findScheme(d: Doc, arrowId?: Id): Scheme | null {
   const sameRow = arrows.filter((a) => a.id !== arrow.id && Math.abs((a.y1 + a.y2) / 2 - ay) < 40);
   const leftLimit = Math.max(-Infinity, ...sameRow.filter((a) => Math.max(a.x1, a.x2) <= ax1).map((a) => Math.max(a.x1, a.x2)));
   const rightLimit = Math.min(Infinity, ...sameRow.filter((a) => Math.min(a.x1, a.x2) >= ax2).map((a) => Math.min(a.x1, a.x2)));
-  const left: Id[][] = [], right: Id[][] = [];
+  const left: Id[][] = [], right: Id[][] = [], reagents: Id[][] = [];
   for (const c of components(d)) {
     const b = componentBox(d, c, scene.layouts);
     const cx = (b.x1 + b.x2) / 2, cy = (b.y1 + b.y2) / 2;
+    // 矢印の真上・真下の分子は試薬
+    if (cx >= ax1 - 4 && cx <= ax2 + 4 && Math.abs(cy - ay) < 110 && (b.y2 < ay + 2 || b.y1 > ay - 2)) {
+      reagents.push(c);
+      continue;
+    }
     if (cy < ay - 60 || cy > ay + 60 || b.y2 < ay - 50 || b.y1 > ay + 50) continue;
     if (cx < ax1 && cx > leftLimit) left.push(c);
     else if (cx > ax2 && cx < rightLimit) right.push(c);
   }
   const dir = arrow.x2 >= arrow.x1 ? 1 : -1;
-  if (dir < 0) return { arrow, left: right, right: left };
-  return { arrow, left, right };
+  if (dir < 0) return { arrow, left: right, right: left, reagents };
+  return { arrow, left, right, reagents };
 }
 
 /** 生成物の向き・原子の位置を原料にそろえる */
@@ -692,18 +701,173 @@ function respaceRight(d: Doc, scheme: Scheme): Doc {
   return next;
 }
 
-/** 反応式の文字の試薬 (HBr, NaOH, H2O …) を分子にする (内蔵辞書と SMILES だけ。ネットには行かない) */
-async function reagentMolecules(text: string): Promise<string[]> {
+const SOLVENTS = /^(?:Et2O|ether|ジエチルエーテル|THF|DMSO|DMF|CH2Cl2|DCM|CHCl3|CCl4|benzene|ベンゼン|toluene|トルエン|hexanes?|ヘキサン|pentane|MeCN|CH3CN|acetone|アセトン|dioxane|ジオキサン|EtOAc|AcOEt|CH3CO2H|AcOH|t-BuOH|tBuOH|HMPA|NMP|DME)$/i;
+
+/** 試薬の文字の 1 つを、名前として引ける形に整える (番号・当量・触媒・条件を外す) */
+export function cleanReagentToken(raw: string): string | null {
+  let t = raw.normalize('NFKC').trim()
+    .replace(/^\(?\d+\)?[.)]\s*/, '')
+    .replace(/\((?:cat\.?|catalytic|触媒|excess|過剰|xs)\)|\b(?:cat\.|excess|xs)\b/gi, '')
+    .replace(/^\d+(?:\.\d+)?\s*(?:equiv\.?|eq\.?|当量)\s*/i, '')
+    .replace(/\s*\(?\d+(?:\.\d+)?\s*(?:equiv\.?|eq\.?|当量)\)?$/i, '')
+    .replace(/[⁺]/g, '+').replace(/[⁻−–]/g, '-')
+    .trim();
+  // 条件 (温度・時間・圧力) は試薬ではない
+  if (/°C|℃|^-?\d+(?:\.\d+)?\s*(?:K|h|hr|hrs|min|s|sec|d|days?|MPa|kPa|atm|bar|%)$|^-?\d+$/i.test(t)) return null;
+  const coef = t.match(/^(\d+)\s+(.+)$/);
+  if (coef) t = coef[2];
+  if (!t || t.length > 40) return null;
+  // 条件 (温度・時間・圧力・加熱・光) は試薬ではない
+  if (/^(?:Δ|heat|reflux|還流|加熱|hν|hv|light|光|rt|r\.t\.|室温|then|workup|後処理)$/i.test(t)) return null;
+  if (/°C|℃|\bK$|\d+\s*(?:h|min|hr|s|MPa|atm|bar|%)$|^-?\d+$/i.test(t)) return null;
+  return t;
+}
+
+export function reagentTokens(text: string): string[] {
+  return text.split(/[,，、;；\n/]|\s+(?:then|and)\s+/).map(cleanReagentToken).filter((t): t is string => !!t);
+}
+
+interface ReagentCandidate {
+  key: string;
+  name: string;
+  frag: Doc;
+  counts: Record<string, number>;
+  solvent: boolean;
+}
+
+function elementCountsOf(d: Doc): Record<string, number> {
+  const c: Record<string, number> = {};
+  for (const a of Object.values(d.atoms)) {
+    const el = a.label ? '*' : a.element;
+    c[el] = (c[el] ?? 0) + 1;
+    const h = implicitH(d, a);
+    if (h) c.H = (c.H ?? 0) + h;
+  }
+  return c;
+}
+
+/** 矢印の上下の試薬 (描いた構造式と、文字で書いた試薬) を分子にする。online: 内蔵の表で引けない名前をネットで探す */
+async function reagentCandidates(d: Doc, scheme: Scheme, online: boolean): Promise<ReagentCandidate[]> {
+  const out: ReagentCandidate[] = [];
+  for (const [i, comp] of scheme.reagents.entries()) {
+    const frag = extractSelection(d, selOf(comp));
+    out.push({ key: `drawn${i}`, name: '矢印の上下の構造式', frag, counts: elementCountsOf(frag), solvent: false });
+  }
   const { lookupDictionary } = await import('./dictionary');
-  const out: string[] = [];
-  const tokens = text.replace(/\d+\.\s*/g, ' ').split(/[,，、;；\n/]|\s+/).map((t) => t.trim()).filter(Boolean);
-  for (const t of tokens) {
-    const m = t.match(/^(\d+)\s*(.+)$/);
-    const name = m ? m[2] : t;
-    const e = lookupDictionary(name) ?? lookupDictionary(name.replace(/\(cat\.\)|cat\./g, ''));
-    if (e) out.push(e.smiles);
+  const { smilesFromFormula } = await import('./formulas');
+  const { structureFromText } = await import('./rdkit');
+  for (const [i, name] of reagentTokens(`${scheme.arrow.above}\n${scheme.arrow.below}`).entries()) {
+    let smi = lookupDictionary(name)?.smiles ?? (await smilesFromFormula(name, true));
+    if (!smi && online) {
+      const { searchStructure } = await import('./names');
+      smi = (await smilesFromFormula(name).catch(() => null)) ?? (await searchStructure(name).then((r) => r.structure).catch(() => null));
+    }
+    if (!smi) continue;
+    try {
+      const frag = await structureFromText(smi);
+      out.push({ key: `text${i}`, name, frag, counts: elementCountsOf(frag), solvent: SOLVENTS.test(name) });
+    } catch {
+      /* 読めない試薬は飛ばす */
+    }
   }
   return out;
+}
+
+const HYDRIDE_EL = new Set(['B', 'Al', 'Si', 'Sn', 'Li', 'Na', 'K', 'Mg']);
+const PROTIC_EL = new Set(['O', 'N', 'S', 'F', 'Cl', 'Br', 'I', 'P']);
+
+interface Need {
+  /** 原料に対応のない元素の数 (必ず補う) */
+  elements: Record<string, number>;
+  /** 足りない水素の数 (必ず補う) */
+  h: number;
+  /** C=O・C=N の炭素が受け取る水素のうち、ヒドリド (B–H など) で補いたい数 */
+  hydride: number;
+  /** ヘテロ原子が受け取る水素のうち、プロトン (O–H など) で補いたい数 */
+  proton: number;
+}
+
+/** 試薬の H の内訳: Hh はヒドリドになれる H (B・Al などの H)、Hp はプロトンになれる H (ヘテロ原子の H) */
+function hydrogenKinds(d: Doc, ids: Iterable<Id>): { hydride: number; protic: number; any: number } {
+  let hydride = 0, protic = 0, any = 0;
+  for (const id of ids) {
+    const a = d.atoms[id];
+    if (a.element === 'H') {
+      any += 1;
+      const nb = neighbors(d, id)[0]?.atom;
+      if (!nb ? a.charge < 0 : HYDRIDE_EL.has(nb.element)) hydride += 1;
+      else if (nb && PROTIC_EL.has(nb.element)) protic += 1;
+      continue;
+    }
+    const h = implicitH(d, a);
+    any += h;
+    if (HYDRIDE_EL.has(a.element)) hydride += h;
+    if (PROTIC_EL.has(a.element)) protic += h;
+  }
+  return { hydride, protic, any };
+}
+
+function deficit(S: Doc, T: Doc, map: Map<Id, Id>): Need {
+  const elements: Record<string, number> = {};
+  let acc = 0, don = 0, wantHydride = 0, wantProton = 0, gotProton = 0;
+  for (const a of Object.values(T.atoms)) {
+    const s = map.get(a.id);
+    if (!s) {
+      const el = a.label ? '*' : a.element;
+      if (el === 'H') acc += 1;
+      else elements[el] = (elements[el] ?? 0) + 1;
+      continue;
+    }
+    const sa = S.atoms[s];
+    const dh = implicitH(T, a) - implicitH(S, sa);
+    if (dh > 0) {
+      acc += dh;
+      if (PROTIC_EL.has(a.element)) wantProton += dh;
+      else if (a.element === 'C') {
+        // C=O・C=N の結合が弱まる炭素 (カルボニルの還元など) はヒドリドを受け取る
+        const reduced = neighbors(S, s).some((n) => (n.atom.element === 'O' || n.atom.element === 'N') && n.bond.order > (bondBetween(T, a.id, [...map].find(([, l]) => l === n.atom.id)?.[0] ?? '')?.order ?? 0));
+        if (reduced) wantHydride += dh;
+      }
+    } else if (dh < 0) {
+      don -= dh;
+      if (PROTIC_EL.has(sa.element)) gotProton -= dh;
+    }
+  }
+  // 生成物に残らない原子の H (明示した H 原子・試薬の暗黙の H) も出どころになる
+  const mapped = new Set(map.values());
+  const spare = Object.keys(S.atoms).filter((id) => !mapped.has(id));
+  const k = hydrogenKinds(S, spare);
+  don += k.any;
+  return {
+    elements,
+    h: Math.max(0, acc - don),
+    hydride: Math.max(0, wantHydride - k.hydride),
+    proton: Math.max(0, wantProton - gotProton - k.protic),
+  };
+}
+
+const needsMore = (n: Need) => n.h > 0 || Object.keys(n.elements).length > 0;
+
+/** 足りない元素・水素を最も多く補える試薬 (溶媒は後回し)。補えるものがなければ null */
+function bestReagent(cands: ReagentCandidate[], need: Need): ReagentCandidate | null {
+  let best: ReagentCandidate | null = null;
+  let bs = 0;
+  for (const c of cands) {
+    let score = 0;
+    for (const [el, n] of Object.entries(need.elements)) score += Math.min(n, c.counts[el] ?? 0) * 10;
+    const hk = hydrogenKinds(c.frag, Object.keys(c.frag.atoms));
+    if (need.h > 0) score += Math.min(need.h, hk.any) * 3;
+    score += Math.min(need.hydride, hk.hydride) * 4 + Math.min(need.proton, hk.protic) * 2;
+    if (score <= 0) continue;
+    if (c.solvent) score -= 5;
+    // 余計な原子が少ない方を選ぶ
+    score -= Object.values(c.counts).reduce((t, n) => t + n, 0) * 0.05;
+    if (score > bs) {
+      bs = score;
+      best = c;
+    }
+  }
+  return best;
 }
 
 /** 内蔵の機構データのうち、原料・生成物が一致するもの */
@@ -756,29 +920,38 @@ async function genericMechanism(d: Doc, scheme: Scheme): Promise<MechanismResult
   let S = extractSelection(d, selOf(L0));
   let T = extractSelection(d, selOf(R));
   let map = await mapAtoms(S, Object.keys(S.atoms), R, T);
-  // 生成物の原子が原料にないときは、矢印の上下の試薬を加えてみる
-  if ([...R].some((id) => !map.has(id) && T.atoms[id].element !== 'H')) {
-    const reagents = await reagentMolecules(`${scheme.arrow.above}\n${scheme.arrow.below}`);
-    if (reagents.length) {
-      const { structureFromText } = await import('./rdkit');
-      let x = (buildScene(S).bbox?.x2 ?? 0) + 30;
-      for (const smi of reagents) {
-        try {
-          const frag = await structureFromText(smi);
-          const fb = buildScene(frag).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
-          S = insertFragment(S, frag, x - fb.x1, 0).doc;
-          x += fb.x2 - fb.x1 + 20;
-        } catch {
-          /* 読めない試薬は飛ばす */
-        }
+  // 生成物の元素・水素が原料で足りないときは、矢印の上下の試薬 (構造式・文字) から補う
+  const added: string[] = [];
+  const used = new Set<string>();
+  let need = deficit(S, T, map);
+  const wants = (n: Need) => needsMore(n) || n.hydride > 0 || n.proton > 0;
+  if (wants(need)) {
+    let cands = await reagentCandidates(d, scheme, false);
+    let triedOnline = false;
+    for (let k = 0; k < 4 && wants(need); k++) {
+      let pick = bestReagent(cands, need);
+      // ネットまで探すのは、元素・水素が本当に足りないときだけ
+      if (!pick && !triedOnline && needsMore(need)) {
+        // 内蔵の表で引けなかった名前をネットで探す
+        triedOnline = true;
+        cands = (await reagentCandidates(d, scheme, true)).filter((c) => !used.has(c.key));
+        pick = bestReagent(cands, need);
       }
+      if (!pick) break;
+      cands = cands.filter((c) => c !== pick);
+      const x = (buildScene(S).bbox?.x2 ?? 0) + 30;
+      const fb = buildScene(pick.frag).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+      S = insertFragment(S, pick.frag, x - fb.x1, -(fb.y1 + fb.y2) / 2).doc;
+      added.push(pick.name);
+      used.add(pick.key);
       map = await mapAtoms(S, Object.keys(S.atoms), R, T);
+      need = deficit(S, T, map);
     }
   }
   const missing = R.filter((id) => !map.has(id) && T.atoms[id].element !== 'H');
   if (missing.length) {
     const els = [...new Set(missing.map((id) => T.atoms[id].label ?? T.atoms[id].element))].join(', ');
-    throw new Error(`生成物の原子 (${els}) が原料に見つかりません。試薬も構造式で描いてください`);
+    throw new Error(`生成物の原子 (${els}) が原料にも矢印の上下の試薬にも見つかりません。試薬を矢印の上下に書くか、構造式で描いてください`);
   }
   // 動く水素を明示する
   ({ S, T, map } = explicitMovingH(S, T, map));
@@ -799,7 +972,7 @@ async function genericMechanism(d: Doc, scheme: Scheme): Promise<MechanismResult
   P = arrangeState(P, [], false);
   const states = [S1, P];
   const label = [scheme.arrow.above, scheme.arrow.below].filter((s) => s.trim()).join(', ').replace(/\n/g, ' ');
-  return { doc: assembleMechanism(states, [label]), title: '1 段階の矢印', steps: 1, inexact: st.exact ? 0 : 1 };
+  return { doc: assembleMechanism(states, [label]), title: '1 段階の矢印', steps: 1, inexact: st.exact ? 0 : 1, added };
 }
 
 const selOf = (ids: Id[]): Selection => {
@@ -837,13 +1010,28 @@ function explicitMovingH(S0: Doc, T0: Doc, map0: Map<Id, Id>): { S: Doc; T: Doc;
   }
   const inv = new Map<Id, Id>();
   for (const [t, s] of map) inv.set(s, t);
+  // 生成物に残らない分子 (試薬) の H も出どころになる: NaBH4 の B–H (ヒドリド)、H3O+・MeOH の O–H (プロトン)
+  const spare: Id[] = [];
+  for (const a of Object.values(S.atoms)) {
+    if (inv.has(a.id) || a.element === 'H') continue;
+    for (let i = 0; i < implicitH(S, a); i++) spare.push(a.id);
+  }
   const dist = (p: Id, q: Id) => Math.hypot(S.atoms[p].x - S.atoms[q].x, S.atoms[p].y - S.atoms[q].y);
+  const HYDRIDE = new Set(['B', 'Al', 'Si', 'Sn', 'Li', 'Na', 'K', 'Mg']);
+  const HETERO = new Set(['O', 'N', 'S', 'F', 'Cl', 'Br', 'I', 'P']);
+  /** 受け取る原子に合う出どころ: 炭素はヒドリド、ヘテロ原子はプロトン (ヘテロ原子の H) を優先 */
+  const pref = (don: Id, acc: Id) => {
+    const de = S.atoms[don].element, ae = S.atoms[acc].element;
+    if (ae === 'C') return HYDRIDE.has(de) ? 0 : HETERO.has(de) ? 1 : 2;
+    return HETERO.has(de) ? 0 : HYDRIDE.has(de) ? 1 : 2;
+  };
   const remaining = [...donors];
   for (const acc of acceptors) {
-    if (!remaining.length) throw new Error('水素の出どころが分かりません (H⁺ や H₂O などの試薬も構造式で描いてください)');
-    // ヘテロ原子の H を優先し、近いものから
-    remaining.sort((p, q) => (S.atoms[p].element === 'C' ? 1 : 0) - (S.atoms[q].element === 'C' ? 1 : 0) || dist(p, acc) - dist(q, acc));
-    const don = remaining.shift()!;
+    // 水素を失うはずの原子 (対応のある原子) を先に使い、足りなければ試薬の H
+    const pool = remaining.length ? remaining : spare;
+    if (!pool.length) throw new Error('水素の出どころが分かりません (H3O+ や NaBH4 などの試薬を矢印の上下に書いてください)');
+    pool.sort((p, q) => pref(p, acc) - pref(q, acc) || dist(p, acc) - dist(q, acc));
+    const don = pool.shift()!;
     const gs = growBond(S, don, bestBondAngle(S, don), 1, 'none', 'H');
     S = gs.doc;
     const tAcc = inv.get(acc)!;

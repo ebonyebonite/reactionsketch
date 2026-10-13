@@ -13,6 +13,7 @@ import { buildScene, componentBox } from '../render/scene';
 import { cleanComponents, expandLabels, structureFromText } from '../chem/rdkit';
 import { searchStructure } from '../chem/names';
 import { applyArrows, separateFragments } from '../model/mechanism';
+import { parseSalt, withCounterIon, type CounterIon } from '../model/salt';
 import { asRepeatUnit, layoutRepeatUnit, monomerToRepeatUnit, polymerizableBond, repeatUnitBracket } from '../model/polymer';
 
 export const doc = (): Doc => activeTab().doc;
@@ -45,7 +46,9 @@ export function parseAtomInput(raw: string): Partial<Atom> | null {
 }
 
 export function setAtomFromInput(atomId: Id, raw: string): void {
-  const p = parseAtomInput(raw);
+  // 「NH3+Cl-」「NH3Cl」「ONa」など: 本体と対イオンに分ける
+  const salt = parseSalt(raw);
+  const p = parseAtomInput(salt ? salt.main : raw);
   if (!p) return;
   const d = doc();
   const a = d.atoms[atomId];
@@ -54,7 +57,15 @@ export function setAtomFromInput(atomId: Id, raw: string): void {
   if (!('label' in p) || p.label === undefined) delete next.label;
   if (p.hCount === undefined) delete next.hCount;
   if (p.showLabel === undefined) delete next.showLabel;
-  commit({ ...d, atoms: { ...d.atoms, [atomId]: next } });
+  const updated = { ...d, atoms: { ...d.atoms, [atomId]: next } };
+  commit(salt ? withCounterIon(updated, atomId, salt.ion).doc : updated);
+}
+
+/** 原子に対イオンを付ける (原子の電荷は対イオンと逆にする) */
+export function addCounterIon(atomId: Id, ion: CounterIon): void {
+  const d = doc();
+  if (!d.atoms[atomId]) return;
+  commit(withCounterIon(d, atomId, ion).doc);
 }
 
 // ---- 選択・削除・コピー ----

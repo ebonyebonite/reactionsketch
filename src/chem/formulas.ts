@@ -35,6 +35,20 @@ const TABLE: Record<string, string> = {
   CH3COOH: 'CC(=O)O', HCOOH: 'OC=O', HCHO: 'C=O', CH3CHO: 'CC=O', CH3COCH3: 'CC(C)=O', CH3COONa: '[Na+].CC([O-])=O',
   CH3Cl: 'CCl', CH2Cl2: 'ClCCl', CHCl3: 'ClC(Cl)Cl', CCl4: 'ClC(Cl)(Cl)Cl', C6H12O6: 'OCC1OC(O)C(O)C(O)C1O',
   'CO(NH2)2': 'NC(N)=O', '(NH2)2CO': 'NC(N)=O', C6H5Cl: 'Clc1ccccc1', C6H5SO3H: 'OS(=O)(=O)c1ccccc1',
+  // 試薬 (反応式の矢印の上下によく書くもの)
+  'H3O+': '[OH3+]', 'H+': '[H+]', 'OH-': '[OH-]', 'HO-': '[OH-]', 'H-': '[H-]', 'Br-': '[Br-]', 'Cl-': '[Cl-]', 'I-': '[I-]', 'CN-': '[C-]#N',
+  'NO2+': 'O=[N+]=O', 'Br+': '[Br+]', 'Cl+': '[Cl+]', 'RO-': 'C[O-]', 'MeO-': 'C[O-]', 'EtO-': 'CC[O-]',
+  NaBH4: '[Na+].[BH4-]', LiAlH4: '[Li+].[AlH4-]', BH3: 'B', 'BH3·THF': 'B', 'B2H6': 'B', DIBAL: 'CC(C)C[AlH]CC(C)C', 'DIBAL-H': 'CC(C)C[AlH]CC(C)C',
+  CH3MgBr: 'C[Mg]Br', CH3MgI: 'C[Mg]I', CH3CH2MgBr: 'CC[Mg]Br', C2H5MgBr: 'CC[Mg]Br', EtMgBr: 'CC[Mg]Br', MeMgBr: 'C[Mg]Br', MeMgI: 'C[Mg]I',
+  PhMgBr: 'Br[Mg]c1ccccc1', C6H5MgBr: 'Br[Mg]c1ccccc1', CH3Li: 'C[Li]', MeLi: 'C[Li]', 'n-BuLi': 'CCCC[Li]', BuLi: 'CCCC[Li]', PhLi: '[Li]c1ccccc1',
+  '(CH3)2CuLi': 'C[Cu-]C.[Li+]', Me2CuLi: 'C[Cu-]C.[Li+]', LDA: '[Li+].CC(C)[N-]C(C)C',
+  NaOEt: '[Na+].CC[O-]', NaOMe: '[Na+].C[O-]', KOtBu: '[K+].CC(C)(C)[O-]', 'KOt-Bu': '[K+].CC(C)(C)[O-]', 't-BuOK': '[K+].CC(C)(C)[O-]', 'tBuOK': '[K+].CC(C)(C)[O-]',
+  NaCN: '[Na+].[C-]#N', KCN: '[K+].[C-]#N', NaN3: '[Na+].[N-]=[N+]=[N-]', NaSH: '[Na+].[SH-]', NaNH2: '[Na+].[NH2-]', KH: '[K+].[H-]',
+  CH3I: 'CI', MeI: 'CI', CH3Br: 'CBr', MeBr: 'CBr', EtBr: 'CCBr', EtI: 'CCI', CH3CH2Br: 'CCBr', BnBr: 'BrCc1ccccc1', PhCH2Br: 'BrCc1ccccc1',
+  PBr3: 'BrP(Br)Br', PCl3: 'ClP(Cl)Cl', PCl5: 'ClP(Cl)(Cl)(Cl)Cl', SOCl2: 'O=S(Cl)Cl', POCl3: 'O=P(Cl)(Cl)Cl', 'COCl2': 'O=C(Cl)Cl',
+  NBS: 'O=C1CCC(=O)N1Br', NCS: 'O=C1CCC(=O)N1Cl', mCPBA: 'O=C(OO)c1cccc(Cl)c1', 'm-CPBA': 'O=C(OO)c1cccc(Cl)c1', OsO4: 'O=[Os](=O)(=O)=O',
+  CH3COCl: 'CC(=O)Cl', AcCl: 'CC(=O)Cl', Ac2O: 'CC(=O)OC(C)=O', '(CH3CO)2O': 'CC(=O)OC(C)=O', MeOH: 'CO', EtOH: 'CCO', 'EtOH/H2O': 'CCO',
+  NH2OH: 'NO', 'H2NNH2': 'NN', N2H4: 'NN', Et3N: 'CCN(CC)CC', TsCl: 'Cc1ccc(S(=O)(=O)Cl)cc1', MsCl: 'CS(=O)(=O)Cl', HCO2H: 'OC=O',
 };
 
 const KEY = new Map(Object.entries(TABLE).map(([k, v]) => [k, v]));

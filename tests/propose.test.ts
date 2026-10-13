@@ -88,3 +88,64 @@ describe('原子の対応と位置合わせ', () => {
     }
   });
 });
+
+describe('足りない元素を矢印の上下の試薬から補う', () => {
+  const run = async (l: string[], r: string[], above: string, below = '') => {
+    const d = await buildReactionDoc(l, r, above, below);
+    return proposeMechanism(d, findScheme(d)!);
+  };
+
+  it('文字の試薬の書き方を読み分ける', async () => {
+    const { reagentTokens } = await import('../src/chem/propose');
+    expect(reagentTokens('1. CH3MgBr, Et2O\n2. H3O+')).toEqual(['CH3MgBr', 'Et2O', 'H3O+']);
+    expect(reagentTokens('NaBH4 (1.2 equiv), MeOH, 0 °C, 2 h')).toEqual(['NaBH4', 'MeOH']);
+    expect(reagentTokens('H2SO4 (cat.), Δ')).toEqual(['H2SO4']);
+  });
+
+  it('HBr を文字で書いた付加 (足りない Br と H)', async () => {
+    const r = await run(['C=CC(C)(C)C'], ['CC(Br)C(C)(C)C'], 'HBr');
+    expect(r.inexact).toBe(0);
+    expect(r.added).toEqual(['HBr']);
+  });
+
+  it('グリニャール反応: CH3MgBr で炭素、H3O+ で水素を補う (溶媒の Et2O は使わない)', async () => {
+    const r = await run(['CC(C)=O'], ['CC(C)(C)O'], '1. CH3MgBr, Et2O\n2. H3O+');
+    expect(r.inexact).toBe(0);
+    expect(r.added).toEqual(['CH3MgBr', 'H3O+']);
+  });
+
+  it('NaBH4 還元: 炭素にはヒドリド (B–H)、酸素には MeOH のプロトン', async () => {
+    const r = await run(['CC(=O)c1ccccc1'], ['CC(O)c1ccccc1'], 'NaBH4', 'MeOH');
+    expect(r.inexact).toBe(0);
+    expect(r.added).toEqual(['NaBH4', 'MeOH']);
+    // B–H 結合から出る矢印がある
+    const d = r.doc;
+    const fromBH = Object.values(d.objects).some((o) => o.type === 'curved' && o.from.kind === 'bond' && (() => {
+      const b = d.bonds[(o.from as { id: string }).id];
+      return b && [d.atoms[b.a1].element, d.atoms[b.a2].element].sort().join() === 'B,H';
+    })());
+    expect(fromBH).toBe(true);
+  });
+
+  it('矢印の上に構造式で描いた試薬も使う', async () => {
+    const { Builder } = await import('../src/examples');
+    const b = new Builder();
+    await b.mol('C=CC(C)(C)C');
+    b.arrow('forward', '', '');
+    await b.mol('CC(Br)C(C)(C)C');
+    let d = b.finish();
+    const arrow = Object.values(d.objects).find((o) => o.type === 'reaction') as { x1: number; x2: number; y1: number };
+    const { structureFromText } = await import('../src/chem/rdkit');
+    const { insertFragment } = await import('../src/model/edit');
+    d = insertFragment(d, await structureFromText('Br'), (arrow.x1 + arrow.x2) / 2, arrow.y1 - 12).doc;
+    const sc = findScheme(d)!;
+    expect(sc.reagents.length).toBe(1);
+    const r = await proposeMechanism(d, sc);
+    expect(r.inexact).toBe(0);
+    expect(r.added).toEqual(['矢印の上下の構造式']);
+  });
+
+  it('補えないときは分かりやすく失敗する', async () => {
+    await expect(run(['C=CC(C)(C)C'], ['CC(Br)C(C)(C)C'], 'Et2O')).rejects.toThrow(/矢印の上下/);
+  });
+});

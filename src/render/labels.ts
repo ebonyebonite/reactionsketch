@@ -206,8 +206,17 @@ export function layoutAtom(doc: Doc, atom: Atom): AtomLayout {
   if (ct) {
     const cw = textWidth(ct, SIZE * 0.85);
     if (!isHiddenCarbon) {
-      charge = { x: right + cw / 2 + 0.6, y: top + 0.6, text: ct };
-      occupied.push(-Math.PI / 4);
+      // ふつうは右上。右上に結合が伸びていれば、左上 → 右下 → 左下の順に空いている所へ
+      const near = (a: number) => occupied.some((o) => Math.abs(Math.atan2(Math.sin(o - a), Math.cos(o - a))) < 0.55);
+      const spots: [number, number, number][] = [
+        [-Math.PI / 4, right + cw / 2 + 0.6, top + 0.6],
+        [(-3 * Math.PI) / 4, bbox.x1 - cw / 2 - 0.6, top + 0.6],
+        [Math.PI / 4, right + cw / 2 + 0.6, bbox.y2 - 0.6],
+        [(3 * Math.PI) / 4, bbox.x1 - cw / 2 - 0.6, bbox.y2 - 0.6],
+      ];
+      const [ang, cx, cy] = spots.find(([a]) => !near(a)) ?? spots[0];
+      charge = { x: cx, y: cy, text: ct };
+      occupied.push(ang);
     } else {
       const [dir] = freeDirections(occupied, 1, [-Math.PI / 4]);
       const r = 5.5;

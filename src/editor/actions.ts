@@ -765,7 +765,10 @@ export async function proposeMechanismForScheme(): Promise<void> {
     commit(next, sel);
     ensureVisible(all.x1 + (rb.x2 - rb.x1) / 2, titleY + 14 + (rb.y2 - rb.y1) / 2, rb.x2 - rb.x1);
     if (r.inexact) toast('矢印を適用しても次の構造と一致しない段階があります。矢印を確認してください', 'error');
-    else if (r.generic) toast('内蔵の機構がない反応なので、原料から生成物への電子の動きを 1 段階の矢印で表しました (実際は多段階のこともあります)');
+    else if (r.generic) {
+      const add = r.added?.length ? `矢印の上下から ${[...new Set(r.added)].join('・')} を補い、` : '';
+      toast(`内蔵の機構がない反応なので、${add}原料から生成物への電子の動きを 1 段階の矢印で表しました (実際は多段階のこともあります)`);
+    }
     else toast(`反応機構 (${r.steps} 段階) を置きました`);
   } catch (e) {
     toast((e as Error).message, 'error');

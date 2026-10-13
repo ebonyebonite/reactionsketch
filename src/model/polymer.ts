@@ -34,7 +34,15 @@ export function repeatUnitBracket(doc: Doc, comp: Id[], label = 'n'): Bracket {
     x2 = Math.min(Math.max(mids[mids.length - 1].x, box.x2 + 2), starXs[starXs.length - 1] - 1.5);
   }
   const pad = 5;
-  const y1 = box.y1 - pad, y2 = box.y2 + pad;
+  let y1 = box.y1 - pad, y2 = box.y2 + pad;
+  // 括弧の端が、またぐ結合のすぐそばで終わらないようにする
+  for (const st of stars) {
+    const nb = neighbors(doc, st)[0]?.atom;
+    if (!nb) continue;
+    const y = (doc.atoms[st].y + nb.y) / 2;
+    y1 = Math.min(y1, y - 6);
+    y2 = Math.max(y2, y + 6);
+  }
   return { id: newId('o'), type: 'bracket', shape: 'square', x: x1, y: y1, w: Math.max(6, x2 - x1), h: y2 - y1, label, labelPos: 'bottom' };
 }
 
@@ -98,6 +106,21 @@ export function levelStars(doc: Doc): Doc {
 
 export { componentOf };
 
+/** start から先 (from を通らない) の原子 */
+function branchOf(doc: Doc, start: Id, from: Id): Set<Id> {
+  const tree = new Set<Id>([start]);
+  const stack = [start];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const m of neighbors(doc, cur)) {
+      if (m.atom.id === from || tree.has(m.atom.id)) continue;
+      tree.add(m.atom.id);
+      stack.push(m.atom.id);
+    }
+  }
+  return tree;
+}
+
 /** 木構造の側鎖をジグザグに置く。dir は親からこの原子への向き、sign は次に曲がる向き、axis は側鎖全体の向き */
 function zigzagTree(doc: Doc, atoms: Doc['atoms'], id: Id, parent: Id, p: { x: number; y: number }, dir: number, sign: number, axis: number): void {
   atoms[id] = { ...atoms[id], x: p.x, y: p.y };
@@ -115,6 +138,57 @@ function zigzagTree(doc: Doc, atoms: Doc['atoms'], id: Id, parent: Id, p: { x: n
     const L = ACS.bondLength;
     zigzagTree(doc, atoms, m.atom.id, id, { x: p.x + L * Math.cos(d), y: p.y + L * Math.sin(d) }, d, -Math.sign(turns[k] || sign) || -sign, axis);
   });
+}
+
+/**
+ * 主鎖に環がある繰り返し単位 (PET・ケブラーなど) の配置。
+ * 次の単位とつながる 2 つの原子 (* の隣) を同じ高さに並べ、* への結合を水平に外へ出す。
+ * * は内側の原子・ラベルより外に置くので、括弧は必ずこの 2 本の結合だけをまたぐ。
+ */
+function placeEnds(doc: Doc, stars: Id[]): Doc {
+  const att = stars.map((s) => neighbors(doc, s)[0]?.atom.id);
+  if (!att[0] || !att[1] || att[0] === att[1]) return levelStars(doc);
+  const A = doc.atoms[att[0]], B = doc.atoms[att[1]];
+  const ang = Math.atan2(B.y - A.y, B.x - A.x);
+  const c = Math.cos(-ang), s = Math.sin(-ang);
+  const atoms = { ...doc.atoms };
+  for (const a of Object.values(doc.atoms)) {
+    const dx = a.x - A.x, dy = a.y - A.y;
+    atoms[a.id] = { ...a, x: A.x + dx * c - dy * s, y: A.y + dx * s + dy * c };
+  }
+  // 環やつなぎの原子から出る、環のない長い側鎖 (P3HT のヘキシル基など) はジグザグに整える
+  const ringAtoms = new Set<Id>();
+  for (const b of Object.values(doc.bonds)) if (smallestRingOfBond(doc, b)) ringAtoms.add(b.a1).add(b.a2);
+  const path = backbonePath(doc, stars[0], stars[1]) ?? [];
+  const core = new Set<Id>([...ringAtoms, ...path]);
+  for (const id of core) {
+    for (const n of neighbors(doc, id)) {
+      if (core.has(n.atom.id)) continue;
+      const tree = branchOf(doc, n.atom.id, id);
+      if (tree.size < 3 || [...tree].some((t) => core.has(t))) continue;
+      const inside = Object.values(doc.bonds).filter((b) => tree.has(b.a1) && tree.has(b.a2)).length;
+      if (inside !== tree.size - 1) continue;
+      const P = atoms[id], Q = atoms[n.atom.id];
+      const dir = Math.atan2(Q.y - P.y, Q.x - P.x);
+      // 主鎖 (水平) から離れる向き (真上か真下) へ伸ばす
+      const axis = Math.abs(Q.y - P.y) < 0.5 ? dir : Q.y < P.y ? -Math.PI / 2 : Math.PI / 2;
+      zigzagTree(doc, atoms, n.atom.id, id, { x: P.x + ACS.bondLength * Math.cos(dir), y: P.y + ACS.bondLength * Math.sin(dir) }, dir, 1, axis);
+    }
+  }
+  let out: Doc = { ...doc, atoms };
+  const inner = Object.keys(atoms).filter((id) => !isStar(out, id));
+  const box = componentBox(out, inner, buildScene(out).layouts);
+  const L = ACS.bondLength;
+  const [a0, a1] = [out.atoms[att[0]], out.atoms[att[1]]];
+  out = {
+    ...out,
+    atoms: {
+      ...out.atoms,
+      [stars[0]]: { ...out.atoms[stars[0]], x: Math.min(a0.x - L, box.x1 - 7), y: a0.y },
+      [stars[1]]: { ...out.atoms[stars[1]], x: Math.max(a1.x + L, box.x2 + 7), y: a1.y },
+    },
+  };
+  return out;
 }
 
 /** 2 つの末端 (*) を結ぶ最短経路 (主鎖) */
@@ -151,12 +225,13 @@ export function layoutRepeatUnit(doc: Doc): Doc {
   if (stars.length !== 2) return levelStars(doc);
   const path = backbonePath(doc, stars[0], stars[1]);
   if (!path) return levelStars(doc);
+  if (path.length < 4) return placeEnds(doc, stars);
   const inRing = path.some((id, i) => {
     if (i === 0) return false;
     const b = Object.values(doc.bonds).find((x) => (x.a1 === path[i - 1] && x.a2 === id) || (x.a2 === path[i - 1] && x.a1 === id));
     return b ? !!smallestRingOfBond(doc, b) : false;
   });
-  if (inRing) return levelStars(doc);
+  if (inRing) return placeEnds(doc, stars);
   const L = ACS.bondLength;
   const onPath = new Set(path);
   const atoms = { ...doc.atoms };

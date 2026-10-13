@@ -75,7 +75,7 @@ export function TextEditor() {
   };
   const hint =
     editing.kind === 'atom'
-      ? 'O / N / Cl / OH / NH2 / OMe / CO2Et / Ph / N+ … Enter で確定'
+      ? 'O / N / Cl / OH / NH2 / OMe / CO2Et / Ph / N+ / NH3+Cl- (塩) … Enter で確定'
       : '数字は自動で下付き (H2SO4) ・ *斜体* ・ _{下付} ^{上付} ・ Ctrl+Enter で確定' + (editing.kind === 'above' || editing.kind === 'below' ? ' ・ Tab で上下切替' : '');
 
   return (

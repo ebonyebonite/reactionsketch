@@ -5,8 +5,10 @@ import { selectedAtomIds, selectionSize, updateAtom, updateBond, withObject } fr
 import { components } from '../model/graph';
 import { exactMass, formulaOf, formulaText, hillOrder, hrmsSentence, molecularWeight, type Adduct } from '../model/formula';
 import { activeTab, commit, endTransient, setState, toast, updateTransient, useStore } from '../editor/store';
+import { COUNTER_IONS } from '../model/salt';
 import {
   addCompoundNumber, addRepeatBracket, alignSelection, applyArrowsToNext, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
+  addCounterIon,
 } from '../editor/actions';
 import { smilesOf } from '../chem/rdkit';
 import { nameFromSmiles } from '../chem/names';
@@ -121,6 +123,12 @@ function AtomPanel({ atom }: { atom: Atom }) {
         <button className="mini" onClick={() => set({ charge: atom.charge - 1 })}>−</button>
         <span className="val">{atom.charge > 0 ? `+${atom.charge}` : atom.charge}</span>
         <button className="mini" onClick={() => set({ charge: atom.charge + 1 })}>+</button>
+      </div>
+      <div className="row">
+        <span className="k" title="原子を対イオンと逆の電荷にして、横に対イオンを置きます。ラベルに NH3+Cl- や ONa と入力しても同じです">対イオン</span>
+        {COUNTER_IONS.filter((c) => ['Cl', 'Br', 'I', 'OH', 'Na', 'K'].includes(c.name)).map((c) => (
+          <button key={c.name} className="mini" onClick={() => addCounterIon(atom.id, c)}>{c.name}{c.charge > 0 ? '⁺' : '⁻'}</button>
+        ))}
       </div>
       <div className="row">
         <span className="k">非共有電子対</span>
@@ -342,6 +350,7 @@ function DocPanel() {
           <li>原子にカーソルを合わせて <kbd>O</kbd> <kbd>N</kbd> <kbd>L</kbd>(Cl) <kbd>B</kbd>(Br) <kbd>M</kbd>(Me) で元素を変更</li>
           <li>結合に合わせて <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> で次数、<kbd>W</kbd> <kbd>H</kbd> でくさび</li>
           <li>原子に合わせて <kbd>+</kbd> <kbd>-</kbd> で電荷、<kbd>:</kbd> で非共有電子対、<kbd>.</kbd> でラジカル</li>
+          <li>塩はラベルに <code>NH3+Cl-</code>・<code>NH3Cl</code>・<code>ONa</code> のように入力 (対イオンを横に置きます)</li>
           <li>ダブルクリックで原子ラベル (OMe, CO2Et …) や条件を入力</li>
           <li><kbd>Ctrl</kbd>+<kbd>F</kbd> で名前・SMILES から構造を追加</li>
           <li><kbd>Ctrl</kbd>+<kbd>C</kbd> で選択範囲 (なければ全体) を PNG でコピー</li>

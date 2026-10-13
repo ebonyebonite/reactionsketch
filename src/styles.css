@@ -50,7 +50,8 @@ kbd {
 /* ---- 上部バー ---- */
 .topbar {
   display: flex; align-items: center; gap: 10px;
-  padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border);
+  padding: calc(6px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 6px calc(10px + env(safe-area-inset-left));
+  background: var(--panel); border-bottom: 1px solid var(--border);
 }
 .brand { display: flex; align-items: center; gap: 7px; font-weight: 650; letter-spacing: 0.01em; white-space: nowrap; }
 .search { position: relative; flex: 1; min-width: 160px; max-width: 640px; display: flex; align-items: center; }
@@ -197,7 +198,8 @@ kbd {
 
 .statusbar {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: 3px 10px; font-size: 12px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--border);
+  padding: 3px calc(10px + env(safe-area-inset-right)) calc(3px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
+  font-size: 12px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--border);
 }
 .statusbar .hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .statusbar .zoom { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
@@ -225,51 +227,76 @@ kbd {
 
 .narrow-only { display: none; }
 
+/* ---- タッチ端末 (iPhone・iPad) ----
+   iOS の標準アプリに合わせ、押せる部分を 44pt 前後にし、上端にゆとりを持たせる */
+@media (pointer: coarse) {
+  .topbar { padding-top: calc(10px + env(safe-area-inset-top)); padding-bottom: 8px; }
+  .top-btn { height: 40px; min-width: 40px; justify-content: center; }
+  .top-btn svg { width: 21px; height: 21px; }
+  .search input { height: 40px; font-size: 16px; /* iOS がフォーカス時に拡大しない大きさ */ }
+  .search-icon { top: 10px; }
+  .suggest { top: 44px; }
+  .suggest li { padding: 10px; }
+  .menu-pop { top: 44px; }
+  .menu-item { padding: 11px 12px; }
+  .toolbar { padding-left: calc(6px + env(safe-area-inset-left)); width: calc(108px + env(safe-area-inset-left)); }
+  .tool-group { grid-template-columns: repeat(2, 44px); gap: 4px; }
+  .tool { width: 44px; height: 44px; }
+  .tool.el { height: 34px; }
+  .elements { grid-template-columns: repeat(3, 29px); }
+  .elements .tool { width: 29px; height: 32px; }
+  .tab { padding-top: 7px; padding-bottom: 7px; }
+  .tab.active { padding-bottom: 8px; }
+  .tab-x { opacity: 1; width: 28px; height: 28px; }
+  .tab-add { width: 36px; height: 34px; }
+  .statusbar .mini { min-height: 30px; padding: 2px 8px; }
+  .mini { min-height: 34px; }
+}
+
 /* ---- 狭い画面 (スマホ・タブレット縦) ---- */
 @media (max-width: 760px) {
   /* ページ全体が横にずれたりスクロールしたりしないようにする */
   html, body { overflow: hidden; }
   .app { width: 100%; overflow: hidden; }
-  .wide-only { display: none; }
-  .narrow-only { display: block; }
-
   .topbar {
-    flex-wrap: wrap; gap: 4px 6px;
-    /* ダイナミックアイランド・ノッチの下に余白を取る (iOS は上端を半透明に重ねるため env() ぴったりだと窮屈) */
-    padding: calc(4px + env(safe-area-inset-top) * 1.25) calc(6px + env(safe-area-inset-right)) 6px calc(6px + env(safe-area-inset-left));
+    flex-wrap: wrap; gap: 6px;
+    /* ステータスバー・ダイナミックアイランドとの間にゆとりを取る */
+    padding: calc(12px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) 8px calc(8px + env(safe-area-inset-left));
   }
   .brand span { display: none; }
   .search { order: 3; flex-basis: 100%; min-width: 0; max-width: none; }
-  .search input { height: 32px; font-size: 16px; /* iOS がフォーカス時に拡大しない大きさ */ }
-  .search-icon { top: 6px; }
+  .search input { height: 38px; font-size: 16px; /* iOS がフォーカス時に拡大しない大きさ */ }
+  .search-icon { top: 9px; }
   .top-actions { flex: 1; min-width: 0; justify-content: flex-end; overflow-x: auto; scrollbar-width: none; }
   .top-actions::-webkit-scrollbar { display: none; }
-  .top-btn { height: 36px; padding: 0 7px; flex: none; }
+  .top-btn { height: 40px; min-width: 38px; padding: 0 7px; flex: none; justify-content: center; }
   .top-btn .lbl { display: none; }
   /* 横スクロールする親に切り取られないよう、メニューは画面基準で出す */
   .menu-pop {
-    position: fixed; left: 8px; right: 8px; top: calc(46px + env(safe-area-inset-top) * 1.25);
+    position: fixed; left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right));
+    top: calc(56px + env(safe-area-inset-top));
     min-width: 0; max-height: 70dvh; overflow-y: auto;
   }
   .menu-item { padding: 10px 12px; }
 
-  .tabbar { padding: 2px 6px 0; }
-  .tab { padding: 3px 2px 3px 10px; max-width: 160px; }
-  .tab.active { padding-bottom: 4px; }
+  .tabbar { padding: 2px calc(6px + env(safe-area-inset-right)) 0 calc(6px + env(safe-area-inset-left)); }
+  .tab { padding: 4px 2px 4px 12px; max-width: 170px; }
+  .tab.active { padding-bottom: 5px; }
   .tab-x { opacity: 1; }
-  .tab-add { width: 26px; height: 24px; margin-bottom: 2px; }
+  .tab-add { width: 32px; height: 30px; margin-bottom: 2px; }
 
   .main { flex-direction: column-reverse; }
   .toolbar {
-    width: auto; height: calc(50px + env(safe-area-inset-bottom)); flex: none; flex-direction: row; align-items: flex-start;
+    width: auto; height: calc(54px + env(safe-area-inset-bottom)); flex: none; flex-direction: row; align-items: flex-start;
     overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
     border-right: 0; border-top: 1px solid var(--border); gap: 4px;
     padding: 4px calc(4px + env(safe-area-inset-right)) env(safe-area-inset-bottom) calc(4px + env(safe-area-inset-left));
   }
   .toolbar::-webkit-scrollbar { display: none; }
   .tool-group, .elements { display: flex; flex: none; gap: 2px; padding: 0 4px 0 0; border-bottom: 0; border-right: 1px solid var(--border); }
-  .tool { width: 40px; height: 40px; flex: none; }
-  .elements .tool { width: 34px; height: 40px; }
+  .tool { width: 44px; height: 44px; flex: none; }
+  .tool.el { height: 44px; }
+  .elements .tool { width: 36px; height: 44px; }
   .inspector {
     position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 50dvh; z-index: 50;
     border-left: 0; border-top: 1px solid var(--border); box-shadow: var(--shadow); border-radius: 14px 14px 0 0;
@@ -277,27 +304,36 @@ kbd {
   }
   /* ステータスバーは行を使わず、キャンバス右下に浮かべる */
   .statusbar {
-    position: fixed; right: calc(8px + env(safe-area-inset-right)); bottom: calc(58px + env(safe-area-inset-bottom)); z-index: 10;
+    position: fixed; right: calc(8px + env(safe-area-inset-right)); bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 10;
     padding: 2px 4px 2px 8px; border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
   }
   .statusbar .hint { display: none; }
   .statusbar .mini { min-height: 28px; padding: 2px 6px; }
-  .toast { bottom: calc(100px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(110px + env(safe-area-inset-bottom)); }
   .modal { max-height: 86dvh; padding: 14px 16px; }
 }
 
 /* 中くらいの幅ではボタンの文字を隠してはみ出しを防ぐ */
-@media (max-width: 1100px) {
+/* (iPad 縦・横向きのスマホも含む。使う頻度の低いボタンは「その他」にまとめる) */
+@media (max-width: 1240px), (pointer: coarse) and (max-width: 1400px) {
   .top-btn .lbl { display: none; }
+  .wide-only { display: none; }
+  .narrow-only { display: block; }
 }
 
 /* 横向きのスマホなど、高さが足りない画面 */
 @media (max-height: 500px) {
-  .topbar { flex-wrap: nowrap; padding-top: calc(3px + env(safe-area-inset-top)); padding-bottom: 3px; }
+  .topbar { flex-wrap: nowrap; padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
+  .brand span { display: none; }
   .search { order: 0; flex: 1 1 auto; flex-basis: auto; min-width: 120px; }
   .tabbar { padding-top: 2px; }
   .tab { padding-top: 3px; padding-bottom: 3px; }
   .statusbar .hint { display: none; }
+  /* 高さを節約するため、ステータスバーはキャンバス右下に浮かべる */
+  .statusbar {
+    position: fixed; right: calc(8px + env(safe-area-inset-right)); bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 10;
+    padding: 2px 4px 2px 8px; border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+  }
 }
 .mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .mini.primary svg { width: 15px; height: 15px; }

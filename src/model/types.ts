@@ -48,7 +48,9 @@ export type Anchor =
   /** 原子からの相対位置 (分子と一緒に動く) */
   | { kind: 'point'; atom: Id; dx: number; dy: number }
   /** 絶対座標 */
-  | { kind: 'free'; x: number; y: number };
+  | { kind: 'free'; x: number; y: number }
+  /** 文字 (反応矢印の上下の試薬・テキスト枠) の中の位置。fx, fy は文字の枠に対する割合 (0〜1) */
+  | { kind: 'text'; obj: Id; part: 'above' | 'below' | 'body'; fx: number; fy: number };
 
 export interface CurvedArrow {
   id: Id;
@@ -59,6 +61,8 @@ export interface CurvedArrow {
   to: Anchor;
   /** 弦の長さに対する膨らみ (符号で向き) */
   bend: number;
+  /** 結合から原子への矢印で、新しい結合を作る側の原子 (未指定なら電気陰性度と距離で決める) */
+  fromEnd?: Id;
 }
 
 export type ReactionArrowKind = 'forward' | 'equilibrium' | 'retro' | 'resonance' | 'nogo';

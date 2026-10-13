@@ -62,6 +62,8 @@ function resolve(doc: Doc, a: Anchor): End | null {
       const id = nearestAtom(doc, a.x, a.y, ACS.bondLength * 1.5);
       return id ? { kind: 'atom', id } : null;
     }
+    case 'text':
+      return null;
   }
 }
 
@@ -109,7 +111,7 @@ export function applyArrows(doc: Doc, arrowIds?: Iterable<Id>): ApplyResult {
     const from = resolve(doc, ar.from);
     const to = resolve(doc, ar.to);
     if (!from || !to) {
-      warnings.push('行き先が分からない矢印を無視しました');
+      warnings.push(ar.from.kind === 'text' || ar.to.kind === 'text' ? '試薬の文字に付けた矢印は構造の変化に含めませんでした' : '行き先が分からない矢印を無視しました');
       continue;
     }
     const e = ar.head === 'full' ? 2 : 1;
@@ -140,7 +142,7 @@ export function applyArrows(doc: Doc, arrowIds?: Iterable<Id>): ApplyResult {
         add(dBond, pairKey(from.id, to.id), e);
       } else {
         // 結合 → 別の原子: 行き先に近い側の原子との間に結合ができる
-        const s = attackingEnd(doc, from.a, from.b, to.id);
+        const s = ar.fromEnd === from.a || ar.fromEnd === from.b ? ar.fromEnd : attackingEnd(doc, from.a, from.b, to.id);
         add(dBond, pairKey(s, to.id), e);
       }
     } else {

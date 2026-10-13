@@ -248,6 +248,14 @@ const ROWS: Row[] = [
   ['グリコシドの生成|glycoside formation|フィッシャーグリコシド化', 'OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O>>OC[C@H]1OC(OC)[C@H](O)[C@@H](O)[C@@H]1O', 'CH3OH', 'HCl'],
   ['糖の還元|reduction of sugar|アルジトール', 'O=CC(O)C(O)C(O)C(O)CO>>OCC(O)C(O)C(O)C(O)CO', 'NaBH4', 'H2O'],
   ['糖の酸化|oxidation of sugar|アルドン酸', 'O=CC(O)C(O)C(O)C(O)CO>>O=C(O)C(O)C(O)C(O)C(O)CO', 'Br2', 'H2O'],
+
+  // ---- 工業的製法 ----
+  ['クメン法|cumene process|Hock process|ホック法|フェノールの工業的製法', 'c1ccccc1.CC=C>>Oc1ccccc1.CC(C)=O', '1. H3PO4 (クメン)\n2. O2 (ヒドロペルオキシド)\n3. H2SO4', ''],
+  ['ハーバー・ボッシュ法|Haber-Bosch process|Haber process|アンモニア合成', 'N#N.[HH]>>N', 'Fe 触媒', '400–500 °C, 20–30 MPa'],
+  ['オストワルト法|Ostwald process|硝酸の工業的製法', 'N.O=O>>O[N+](=O)[O-]', '1. Pt, O2\n2. O2, H2O', ''],
+  ['接触法|contact process|硫酸の工業的製法', 'O=S=O.O=O>>OS(=O)(=O)O', '1. V2O5\n2. H2O (発煙硫酸から)', ''],
+  ['ヒドロホルミル化|hydroformylation|オキソ法|oxo process', 'CC=C>>CCCC=O', 'CO, H2', 'Co2(CO)8 または Rh 触媒'],
+  ['エチレンのワッカー法|Wacker process|アセトアルデヒドの工業的製法', 'C=C>>CC=O', 'PdCl2, CuCl2, O2', 'H2O'],
 ];
 
 export const REACTIONS: NamedReaction[] = ROWS.map(([names, rxn, above, below]) => {
@@ -265,10 +273,10 @@ function normalize(s: string): string {
 
 const KEYS = REACTIONS.map((r) => r.names.map(normalize));
 
-/** 反応名で探す (完全一致 → 前方一致 → 部分一致の順) */
-export function searchReactions(query: string, limit = 8): { name: string; reaction: NamedReaction }[] {
+/** 反応名で探す (完全一致 → 前方一致 → 部分一致の順)。score: 3 完全一致, 2 前方一致, 1 部分一致 */
+export function searchReactions(query: string, limit = 8): { name: string; reaction: NamedReaction; score: number }[] {
   const q = normalize(query);
-  if (!q) return REACTIONS.slice(0, limit).map((r) => ({ name: r.names[0], reaction: r }));
+  if (!q) return REACTIONS.slice(0, limit).map((r) => ({ name: r.names[0], reaction: r, score: 0 }));
   const scored: { score: number; i: number; name: string }[] = [];
   KEYS.forEach((keys, i) => {
     let best = 0, name = REACTIONS[i].names[0];
@@ -283,7 +291,7 @@ export function searchReactions(query: string, limit = 8): { name: string; react
     if (best) scored.push({ score: best, i, name });
   });
   scored.sort((a, b) => b.score - a.score || a.i - b.i);
-  return scored.slice(0, limit).map((s) => ({ name: s.name, reaction: REACTIONS[s.i] }));
+  return scored.slice(0, limit).map((s) => ({ name: s.name, reaction: REACTIONS[s.i], score: s.score }));
 }
 
 /** 「r 反応名」の r を外す (r の後に空白が必要) */

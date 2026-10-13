@@ -9,10 +9,10 @@ import {
   withObject, type RingTarget, type Selection,
 } from '../model/edit';
 import { bondBetween, componentOf, valenceError } from '../model/graph';
-import { buildScene, componentBox, type Scene } from '../render/scene';
+import { buildScene, componentBox, textAnchorBox, type Scene } from '../render/scene';
 import { docBodySvg } from '../render/svg';
-import { arcThrough, anchorPos, arrowHead } from '../render/arrows';
-import { hitTest, itemsInRect } from '../editor/hit';
+import { arcThrough, anchorPos, arrowHead, curvedEnds } from '../render/arrows';
+import { hitTest, itemsInRect, textAnchorAt } from '../editor/hit';
 import {
   activeTab, cancelTransient, commit, endTransient, getState, setState, setView, updateTransient, useStore, type Hover,
 } from '../editor/store';
@@ -30,11 +30,14 @@ type Drag =
   | { kind: 'move'; start: Pt; base: Doc; sel: Selection; moved: boolean; narrow?: Selection }
   | { kind: 'bond'; startAtom: Id | null; start: Pt; cur: Pt; moved: boolean; downHover: Hover | null }
   | { kind: 'chain'; startAtom: Id | null; start: Pt; cur: Pt }
-  | { kind: 'curved'; from: Anchor; fromPt: Pt; cur: Pt; target: Hover | null }
+  | { kind: 'curved'; from: Anchor; fromPt: Pt; cur: Pt; target: Hover | null; textTarget: Anchor | null; downObj?: Id }
   | { kind: 'handle'; id: Id; which: 'bend' | 'from' | 'to' | 'start' | 'end'; base: Doc }
   | { kind: 'reaction'; start: Pt; cur: Pt }
   | { kind: 'bracket'; start: Pt; cur: Pt }
   | { kind: 'erase'; touched: boolean };
+
+/** 原子・結合を指す端ならその ID */
+const anchorRef = (a: Anchor): Id | null => (a.kind === 'atom' || a.kind === 'bond' ? a.id : null);
 
 const SNAP = Math.PI / 12; // 15° 刻み (結合は 30° 刻み)
 
@@ -175,6 +178,12 @@ export function Canvas() {
     const d = activeTab().doc;
     return hitTest(d, buildScene(d), p.x, p.y, tol(11), { objects: false });
   };
+  /** 原子・結合がないとき、試薬などの文字 */
+  const pickTextTarget = (p: Pt, h: Hover | null): Anchor | null => {
+    if (h && (h.kind === 'atom' || h.kind === 'bond')) return null;
+    const d = activeTab().doc;
+    return textAnchorAt(d, buildScene(d), p.x, p.y, tol(3));
+  };
 
   const anchorFromHover = (h: Hover | null, p: Pt): Anchor => {
     if (h?.kind === 'atom') return { kind: 'atom', id: h.id };
@@ -302,10 +311,11 @@ export function Canvas() {
         return;
       }
       case 'curved': {
-        if (h?.kind === 'atom' || h?.kind === 'bond') {
-          const from = anchorFromHover(h, p);
+        const textFrom = pickTextTarget(p, h);
+        if (h?.kind === 'atom' || h?.kind === 'bond' || textFrom) {
+          const from = textFrom ?? anchorFromHover(h, p);
           const fp = anchorPos(d, from, null, false)!;
-          setD({ kind: 'curved', from, fromPt: { x: fp.x, y: fp.y }, cur: p, target: null });
+          setD({ kind: 'curved', from, fromPt: { x: fp.x, y: fp.y }, cur: p, target: null, textTarget: null, downObj: textFrom?.kind === 'text' ? textFrom.obj : undefined });
         } else if (h?.kind === 'object') {
           setState({ selection: { atoms: new Set(), bonds: new Set(), objects: new Set([h.id]) } });
         } else {
@@ -424,8 +434,10 @@ export function Canvas() {
         return;
       case 'curved': {
         const target = pickCurvedTarget(p);
-        const isStart = target && dr.from.kind !== 'free' && dr.from.kind !== 'point' && target.kind !== 'handle' && 'id' in target && dr.from.id === target.id;
-        setD({ ...dr, cur: p, target: isStart ? null : target });
+        const isStart = target && target.kind !== 'handle' && 'id' in target && anchorRef(dr.from) === target.id;
+        const tt = pickTextTarget(p, target);
+        const sameText = tt?.kind === 'text' && dr.from.kind === 'text' && tt.obj === dr.from.obj && tt.part === dr.from.part;
+        setD({ ...dr, cur: p, target: isStart ? null : target, textTarget: sameText ? null : tt });
         return;
       }
       case 'handle': {
@@ -434,8 +446,9 @@ export function Canvas() {
         if (!o) return;
         if (o.type === 'curved') {
           if (dr.which === 'bend') {
-            const p0 = anchorPos(base, o.from, null, false), p2 = anchorPos(base, o.to, null, true);
-            if (!p0 || !p2) return;
+            const ends = curvedEnds(base, o.from, o.to, null);
+            if (!ends) return;
+            const [p0, p2] = ends;
             const L = Math.hypot(p2.x - p0.x, p2.y - p0.y) || 1;
             const nx = -(p2.y - p0.y) / L, ny = (p2.x - p0.x) / L;
             const mx = (p0.x + p2.x) / 2, my = (p0.y + p2.y) / 2;
@@ -444,7 +457,7 @@ export function Canvas() {
             updateTransient(withObject(base, { ...o, bend }));
           } else {
             const target = pickCurvedTarget(p);
-            const anchor = anchorFromHover(target && target.kind !== 'object' && target.kind !== 'handle' ? target : null, p);
+            const anchor = pickTextTarget(p, target) ?? anchorFromHover(target && target.kind !== 'object' && target.kind !== 'handle' ? target : null, p);
             updateTransient(withObject(base, { ...o, [dr.which]: anchor } as CurvedArrow));
           }
         } else if (o.type === 'reaction') {
@@ -566,9 +579,13 @@ export function Canvas() {
       }
       case 'curved': {
         const target = pickCurvedTarget(p);
-        if (Math.hypot(p.x - dr.fromPt.x, p.y - dr.fromPt.y) < tol(8)) return;
-        const isStart = target && target.kind !== 'handle' && target.kind !== 'object' && dr.from.kind !== 'free' && dr.from.kind !== 'point' && dr.from.id === target.id;
-        const to = anchorFromHover(isStart || target?.kind === 'object' || target?.kind === 'handle' ? null : target, p);
+        if (Math.hypot(p.x - dr.fromPt.x, p.y - dr.fromPt.y) < tol(8) && !dr.textTarget) {
+          // 文字を押しただけ: 反応矢印・テキストを選ぶ
+          if (dr.downObj) setState({ selection: { atoms: new Set(), bonds: new Set(), objects: new Set([dr.downObj]) } });
+          return;
+        }
+        const isStart = target && target.kind !== 'handle' && target.kind !== 'object' && anchorRef(dr.from) === target.id;
+        const to = dr.textTarget ?? anchorFromHover(isStart || target?.kind === 'object' || target?.kind === 'handle' ? null : target, p);
         const arrow: CurvedArrow = { id: newId('o'), type: 'curved', head: t.kind === 'curved' ? t.head : 'full', from: dr.from, to, bend: 0 };
         arrow.bend = defaultBend(d, arrow.from, arrow.to);
         commit(withObject(d, arrow), { atoms: new Set(), bonds: new Set(), objects: new Set([arrow.id]) });
@@ -771,11 +788,11 @@ export function Canvas() {
     previews.push(<text key="cn" x={last[0] + 4} y={last[1] - 4} fontSize={9 / z * 2} fill={hl}>{pts.length}</text>);
   }
   if (drag.kind === 'curved') {
-    const p0 = { ...drag.fromPt, gap: anchorPos(doc, drag.from, scene.layouts, false)?.gap ?? 0 };
     const tgt = drag.target && drag.target.kind !== 'object' && drag.target.kind !== 'handle' ? drag.target : null;
-    const toA = anchorFromHover(tgt, drag.cur);
-    const p2 = anchorPos(doc, toA, scene.layouts, true);
-    if (p2) {
+    const toA = drag.textTarget ?? anchorFromHover(tgt, drag.cur);
+    const ends = curvedEnds(doc, drag.from, toA, scene.layouts);
+    if (ends) {
+      const [p0, p2] = ends;
       const g = arcThrough(p0, p2, defaultBend(doc, drag.from, toA));
       if (g) {
         previews.push(<path key="ca" d={g.path} fill="none" stroke={hl} strokeWidth={0.9} />);
@@ -834,6 +851,10 @@ export function Canvas() {
     if (box) hoverEls.push(<rect key="ho" x={box.x1 - 2} y={box.y1 - 2} width={box.x2 - box.x1 + 4} height={box.y2 - box.y1 + 4} fill="none" stroke={hl} strokeWidth={0.5} strokeDasharray="2 1.5" rx={1.5} />);
   }
   // 曲がった矢印の行き先の強調
+  if (drag.kind === 'curved' && drag.textTarget?.kind === 'text') {
+    const tb = textAnchorBox(doc, drag.textTarget.obj, drag.textTarget.part, scene.layouts);
+    if (tb) hoverEls.push(<rect key="tt" x={tb.x1 - 1.5} y={tb.y1 - 1.5} width={tb.x2 - tb.x1 + 3} height={tb.y2 - tb.y1 + 3} fill="rgba(47,124,246,0.12)" stroke={hl} strokeWidth={0.6} rx={1.5} />);
+  }
   if (drag.kind === 'curved' && drag.target) {
     const tg = drag.target;
     if (tg.kind === 'atom' && doc.atoms[tg.id]) {

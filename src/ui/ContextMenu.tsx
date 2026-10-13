@@ -4,7 +4,7 @@ import type { Atom, Bond, CurvedArrow, ReactionArrowKind } from '../model/types'
 import { expandToMolecules, updateAtom, updateBond, withObject } from '../model/edit';
 import { activeTab, commit, getState, setState, useStore } from '../editor/store';
 import {
-  addCompoundNumber, addRepeatBracket, applyArrowsToNext, autoLayoutScheme, cleanStructure, copySelection, deleteSelected,
+  addCompoundNumber, addRepeatBracket, alignReactionAtoms, applyArrowsToNext, proposeMechanismForScheme, autoLayoutScheme, cleanStructure, copySelection, deleteSelected,
   flipSelection, pasteFromClipboard, polymerizeSelected, selectAll,
 } from '../editor/actions';
 import { exportCurrent } from './TopBar';
@@ -114,6 +114,8 @@ export function ContextMenu() {
             const v = activeTab().view;
             setState({ editing: { kind: 'above', id: o.id, x: ((o.x1 + o.x2) / 2) * v.zoom + v.ox, y: ((o.y1 + o.y2) / 2 - 4) * v.zoom + v.oy, value: o.above } });
           }}>反応条件を入力</Item>
+          <Item onClick={proposeMechanismForScheme}>反応機構を提案</Item>
+          <Item onClick={alignReactionAtoms}>生成物の原子の位置を原料にそろえる</Item>
         </div>,
       );
     }

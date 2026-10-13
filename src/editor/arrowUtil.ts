@@ -2,13 +2,15 @@
 import type { Anchor, Doc } from '../model/types';
 import { ACS } from '../model/style';
 import { componentOf } from '../model/graph';
-import { anchorPos } from '../render/arrows';
+import { curvedEnds } from '../render/arrows';
 
 /** 膨らみの向き: 分子の外側に膨らむ方を選ぶ。短い矢印ほど強く曲げる */
 export function defaultBend(d: Doc, from: Anchor, to: Anchor): number {
-  const p0 = anchorPos(d, from, null, false), p2 = anchorPos(d, to, null, true);
-  if (!p0 || !p2) return 0.35;
-  const seed = from.kind === 'atom' ? from.id : from.kind === 'bond' ? d.bonds[from.id]?.a1 : from.kind === 'point' ? from.atom : undefined;
+  const ends = curvedEnds(d, from, to, null);
+  if (!ends) return 0.35;
+  const [p0, p2] = ends;
+  const seedOf = (a: Anchor) => (a.kind === 'atom' ? a.id : a.kind === 'bond' ? d.bonds[a.id]?.a1 : a.kind === 'point' ? a.atom : undefined);
+  const seed = seedOf(from) ?? seedOf(to);
   const ids = seed ? componentOf(d, seed) : [];
   let cx = (p0.x + p2.x) / 2, cy = (p0.y + p2.y) / 2;
   if (ids.length > 1) {

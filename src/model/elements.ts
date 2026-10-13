@@ -172,7 +172,7 @@ export function valencesFor(element: string, charge: number): number[] {
   if (!info) return [];
   const isoelectronic: Record<string, string> = {
     'N+': 'C', 'N-': 'O', 'O+': 'N', 'O-': 'F', 'C+': 'B', 'C-': 'N', 'B-': 'C', 'S+': 'P', 'S-': 'Cl',
-    'P+': 'Si', 'P-': 'S',
+    'P+': 'Si', 'P-': 'S', 'Cl+': 'S', 'Br+': 'Se', 'I+': 'Te',
   };
   if (charge !== 0) {
     const key = element + (charge > 0 ? '+' : '-');

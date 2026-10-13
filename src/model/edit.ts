@@ -63,6 +63,7 @@ function anchorAlive(doc: Doc, a: Anchor): boolean {
     case 'atom': return a.id in doc.atoms;
     case 'bond': return a.id in doc.bonds;
     case 'point': return a.atom in doc.atoms;
+    case 'text': return a.obj in doc.objects;
     default: return true;
   }
 }
@@ -89,6 +90,7 @@ export function deleteSelection(doc: Doc, sel: Selection): Doc {
   let next: Doc = { ...doc, atoms, bonds };
   const objects = { ...doc.objects };
   for (const id of sel.objects) delete objects[id];
+  next = { ...next, objects };
   for (const o of Object.values(objects)) {
     if (o.type === 'curved' && (!anchorAlive(next, o.from) || !anchorAlive(next, o.to))) delete objects[o.id];
     if (o.type === 'text' && o.attachAtom && !(o.attachAtom in atoms)) delete objects[o.id];
@@ -482,17 +484,19 @@ export function insertFragment(doc: Doc, frag: Doc, dx = 0, dy = 0): { doc: Doc;
       case 'bond': return map.has(a.id) ? { kind: 'bond', id: map.get(a.id)! } : null;
       case 'point': return map.has(a.atom) ? { ...a, atom: map.get(a.atom)! } : null;
       case 'free': return { ...a, x: a.x + dx, y: a.y + dy };
+      case 'text': return objMap.has(a.obj) ? { ...a, obj: objMap.get(a.obj)! } : null;
     }
   };
+  const objMap = new Map<Id, Id>(frag.order.map((oid) => [oid, newId('o')]));
   for (const oid of frag.order) {
     const o = frag.objects[oid];
     if (!o) continue;
-    const id = newId('o');
+    const id = objMap.get(oid)!;
     let copy: GraphicObject | null = null;
     switch (o.type) {
       case 'curved': {
         const from = remapAnchor(o.from), to = remapAnchor(o.to);
-        if (from && to) copy = { ...o, id, from, to };
+        if (from && to) copy = { ...o, id, from, to, ...(o.fromEnd ? { fromEnd: map.get(o.fromEnd) } : {}) };
         break;
       }
       case 'reaction': copy = { ...o, id, x1: o.x1 + dx, y1: o.y1 + dy, x2: o.x2 + dx, y2: o.y2 + dy }; break;
@@ -526,7 +530,7 @@ export function extractSelection(doc: Doc, sel: Selection): Doc {
   for (const o of Object.values(doc.objects)) {
     const inSel = sel.objects.has(o.id);
     if (o.type === 'curved') {
-      const ok = (a: Anchor) => (a.kind === 'atom' ? atomIds.has(a.id) : a.kind === 'bond' ? a.id in bonds : a.kind === 'point' ? atomIds.has(a.atom) : inSel);
+      const ok = (a: Anchor) => (a.kind === 'atom' ? atomIds.has(a.id) : a.kind === 'bond' ? a.id in bonds : a.kind === 'point' ? atomIds.has(a.atom) : a.kind === 'text' ? sel.objects.has(a.obj) || selectionSize(sel) === 0 : inSel);
       if ((inSel || selectionSize(sel) === 0 || ok(o.from)) && ok(o.from) && ok(o.to)) objects[o.id] = o;
     } else if (o.type === 'text' && o.attachAtom) {
       if (atomIds.has(o.attachAtom)) objects[o.id] = o;

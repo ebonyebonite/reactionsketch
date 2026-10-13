@@ -7,7 +7,7 @@ import { exactMass, formulaOf, formulaText, hillOrder, hrmsSentence, molecularWe
 import { activeTab, commit, endTransient, setState, toast, updateTransient, useStore } from '../editor/store';
 import { COUNTER_IONS } from '../model/salt';
 import {
-  addCompoundNumber, addRepeatBracket, alignSelection, applyArrowsToNext, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
+  addCompoundNumber, addRepeatBracket, alignReactionAtoms, alignSelection, applyArrowsToNext, proposeMechanismForScheme, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
   addCounterIon,
 } from '../editor/actions';
 import { smilesOf } from '../chem/rdkit';
@@ -238,6 +238,11 @@ function ReactionPanel({ arrow }: { arrow: ReactionArrow }) {
         }}>短く</button>
         <button className="mini" onClick={() => set({ x1: arrow.x2, y1: arrow.y2, x2: arrow.x1, y2: arrow.y1 })}>向きを逆に</button>
       </div>
+      <div className="row">
+        <button className="mini primary" onClick={proposeMechanismForScheme}>反応機構を提案</button>
+        <button className="mini" onClick={alignReactionAtoms}>原子の位置をそろえる</button>
+      </div>
+      <p className="tip">曲がった矢印ツールで、上下の試薬の文字 (HCl など) からも・へも矢印を引けます。</p>
       <p className="tip">数字は自動で下付き (H2SO4)。n-BuLi・t-BuOK・(R) は自動で斜体。*斜体* _&#123;下付&#125; ^&#123;上付&#125;。</p>
     </section>
   );

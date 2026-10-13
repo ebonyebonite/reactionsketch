@@ -114,6 +114,26 @@ export function bracketPath(b: Bracket): { paths: string[]; label?: { x: number;
   };
 }
 
+/** 曲がった矢印が指せる文字の枠 (反応矢印の上下の試薬・テキスト枠) */
+export function textAnchorBox(doc: Doc, obj: Id, part: 'above' | 'below' | 'body', layouts: Record<Id, AtomLayout> | null): Box | null {
+  const o = doc.objects[obj];
+  if (!o) return null;
+  if (o.type === 'reaction') {
+    const g = conditionText(o, part === 'below' ? 'below' : 'above');
+    return g.lines.length ? g.bbox : null;
+  }
+  if (o.type === 'text') {
+    let lays = layouts;
+    if (o.attachAtom && !lays && doc.atoms[o.attachAtom]) {
+      lays = {};
+      for (const id of componentOf(doc, o.attachAtom)) lays[id] = layoutAtom(doc, doc.atoms[id]);
+    }
+    const pos = (lays && attachedTextPos(doc, o, lays)) ?? { x: o.x, y: o.y };
+    return layoutText(o.text, pos.x, pos.y, o.size, o.attachAtom ? (o.attachPos === 'left' ? 'right' : 'center') : o.align, o.bold).bbox;
+  }
+  return null;
+}
+
 function grow(b: Box | null, o: Box): Box {
   if (!isFinite(o.x1)) return b ?? o;
   if (!b) return { ...o };

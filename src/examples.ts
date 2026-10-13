@@ -34,12 +34,13 @@ export class Builder {
   }
 
   /** 座標を直接指定した分子 (Diels–Alder の s-cis ジエンなど) */
-  manual(atoms: [string, number, number, Partial<Atom>?][], bonds: [number, number, 1 | 2 | 3][]): number {
+  manual(atoms: [string, number, number, Partial<Atom>?][], bonds: [number, number, 1 | 2 | 3][], coef?: string): number {
     const created = atoms.map(([el, x, y, p]) => newAtom(this.x + x * ACS.bondLength, y * ACS.bondLength, el, p ?? {}));
     this.doc = withAtoms(this.doc, created);
     this.doc = withBonds(this.doc, bonds.map(([a, b, o]) => newBond(created[a].id, created[b].id, o)));
     this.mols.push(created.map((a) => a.id));
     this.x += 60;
+    if (coef) this.doc = withObject(this.doc, { id: newId('o'), type: 'text', x: 0, y: 0, text: coef, size: ACS.captionSize, align: 'right', attachAtom: created[0].id, attachPos: 'left' });
     return this.mols.length - 1;
   }
 

@@ -259,10 +259,12 @@ export async function addReactionFromQuery(query: string, at?: { x: number; y: n
         const { searchReactionOnline } = await import('../chem/reactionsOnline');
         const on = await searchReactionOnline(name).catch(() => null);
         if (on) {
-          frag = await buildReactionDoc(on.reactants, on.products, on.above, '');
-          msg = on.names
-            ? `${on.title}: ${on.source}から読み取った反応式です (${on.names.reactants.join('・')} → ${on.names.products.join('・')})。正しいか確認してください`
-            : `${on.title} を ${on.source} から追加しました`;
+          frag = await buildReactionDoc(on.reactants, on.products, on.above, '', { reactants: on.reactantCoefs, products: on.productCoefs });
+          msg = on.equation
+            ? `${on.title}: ${on.source}「${on.equation}」から作りました`
+            : on.names
+              ? `${on.title}: ${on.source}から読み取った反応式です (${on.names.reactants.join('・')} → ${on.names.products.join('・')})。正しいか確認してください`
+              : `${on.title} を ${on.source} から追加しました`;
         } else if (hit) {
           const r = hit.reaction;
           frag = await buildReactionDoc(r.reactants, r.products, r.above, r.below);

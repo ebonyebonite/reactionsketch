@@ -223,24 +223,80 @@ kbd {
 .keys td { padding: 5px 0; color: var(--muted); }
 .keys tr { border-bottom: 1px solid var(--border); }
 
+.narrow-only { display: none; }
+
 /* ---- 狭い画面 (スマホ・タブレット縦) ---- */
 @media (max-width: 760px) {
-  .topbar { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  /* ページ全体が横にずれたりスクロールしたりしないようにする */
+  html, body { overflow: hidden; }
+  .app { width: 100%; overflow: hidden; }
+  .wide-only { display: none; }
+  .narrow-only { display: block; }
+
+  .topbar {
+    flex-wrap: wrap; gap: 4px 6px;
+    /* ダイナミックアイランド・ノッチの下に余白を取る (iOS は上端を半透明に重ねるため env() ぴったりだと窮屈) */
+    padding: calc(4px + env(safe-area-inset-top) * 1.25) calc(6px + env(safe-area-inset-right)) 6px calc(6px + env(safe-area-inset-left));
+  }
   .brand span { display: none; }
-  .search { order: 3; flex-basis: 100%; max-width: none; }
+  .search { order: 3; flex-basis: 100%; min-width: 0; max-width: none; }
+  .search input { height: 32px; font-size: 16px; /* iOS がフォーカス時に拡大しない大きさ */ }
+  .search-icon { top: 6px; }
+  .top-actions { flex: 1; min-width: 0; justify-content: flex-end; overflow-x: auto; scrollbar-width: none; }
+  .top-actions::-webkit-scrollbar { display: none; }
+  .top-btn { height: 36px; padding: 0 7px; flex: none; }
   .top-btn .lbl { display: none; }
+  /* 横スクロールする親に切り取られないよう、メニューは画面基準で出す */
+  .menu-pop {
+    position: fixed; left: 8px; right: 8px; top: calc(46px + env(safe-area-inset-top) * 1.25);
+    min-width: 0; max-height: 70dvh; overflow-y: auto;
+  }
+  .menu-item { padding: 10px 12px; }
+
+  .tabbar { padding: 2px 6px 0; }
+  .tab { padding: 3px 2px 3px 10px; max-width: 160px; }
+  .tab.active { padding-bottom: 4px; }
+  .tab-x { opacity: 1; }
+  .tab-add { width: 26px; height: 24px; margin-bottom: 2px; }
+
   .main { flex-direction: column-reverse; }
   .toolbar {
-    width: auto; height: auto; flex-direction: row; overflow-x: auto; overflow-y: hidden;
-    border-right: 0; border-top: 1px solid var(--border); padding: 4px; gap: 4px;
+    width: auto; height: calc(50px + env(safe-area-inset-bottom)); flex: none; flex-direction: row; align-items: flex-start;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    border-right: 0; border-top: 1px solid var(--border); gap: 4px;
+    padding: 4px calc(4px + env(safe-area-inset-right)) env(safe-area-inset-bottom) calc(4px + env(safe-area-inset-left));
   }
-  .tool-group, .elements { display: flex; padding: 0 4px 0 0; border-bottom: 0; border-right: 1px solid var(--border); }
-  .tool { width: 42px; height: 42px; flex: none; }
-  .elements .tool { width: 34px; height: 42px; }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .tool-group, .elements { display: flex; flex: none; gap: 2px; padding: 0 4px 0 0; border-bottom: 0; border-right: 1px solid var(--border); }
+  .tool { width: 40px; height: 40px; flex: none; }
+  .elements .tool { width: 34px; height: 40px; }
   .inspector {
-    position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 50vh; z-index: 50;
+    position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 50dvh; z-index: 50;
     border-left: 0; border-top: 1px solid var(--border); box-shadow: var(--shadow); border-radius: 14px 14px 0 0;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
   }
+  /* ステータスバーは行を使わず、キャンバス右下に浮かべる */
+  .statusbar {
+    position: fixed; right: calc(8px + env(safe-area-inset-right)); bottom: calc(58px + env(safe-area-inset-bottom)); z-index: 10;
+    padding: 2px 4px 2px 8px; border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+  }
+  .statusbar .hint { display: none; }
+  .statusbar .mini { min-height: 28px; padding: 2px 6px; }
+  .toast { bottom: calc(100px + env(safe-area-inset-bottom)); }
+  .modal { max-height: 86dvh; padding: 14px 16px; }
+}
+
+/* 中くらいの幅ではボタンの文字を隠してはみ出しを防ぐ */
+@media (max-width: 1100px) {
+  .top-btn .lbl { display: none; }
+}
+
+/* 横向きのスマホなど、高さが足りない画面 */
+@media (max-height: 500px) {
+  .topbar { flex-wrap: nowrap; padding-top: calc(3px + env(safe-area-inset-top)); padding-bottom: 3px; }
+  .search { order: 0; flex: 1 1 auto; flex-basis: auto; min-width: 120px; }
+  .tabbar { padding-top: 2px; }
+  .tab { padding-top: 3px; padding-bottom: 3px; }
   .statusbar .hint { display: none; }
 }
 .mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }

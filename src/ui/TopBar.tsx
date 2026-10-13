@@ -92,7 +92,7 @@ export function SearchBox() {
   );
 }
 
-function Menu({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
+function Menu({ label, icon, className = '', children }: { label: string; icon: React.ReactNode; className?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -104,8 +104,8 @@ function Menu({ label, icon, children }: { label: string; icon: React.ReactNode;
     return () => window.removeEventListener('pointerdown', close);
   }, [open]);
   return (
-    <div className="menu" ref={ref}>
-      <button className={`top-btn ${open ? 'on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+    <div className={`menu ${className}`} ref={ref}>
+      <button className={`top-btn ${open ? 'on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-label={label} title={label}>
         {icon}
         <span className="lbl">{label}</span>
       </button>
@@ -198,10 +198,10 @@ export function TopBar() {
       <div className="top-actions">
         <button className="top-btn" onClick={undo} disabled={!canUndo} title="元に戻す (Ctrl+Z)">{Icons.undo}</button>
         <button className="top-btn" onClick={redo} disabled={!canRedo} title="やり直す (Ctrl+Y)">{Icons.redo}</button>
-        <button className="top-btn" onClick={cleanStructure} title="構造を整える (Ctrl+Shift+K)">{Icons.clean}<span className="lbl">整える</span></button>
-        <button className="top-btn" onClick={autoLayoutScheme} title="反応式を自動で並べる (Ctrl+L)">{Icons.layout}<span className="lbl">整列</span></button>
-        <button className="top-btn" onClick={applyArrowsToNext} title="曲がった矢印を適用して次の構造を作る (Ctrl+Enter)。選んだ矢印だけにも適用できます">{Icons.next}<span className="lbl">次の構造</span></button>
-        <button className="top-btn" onClick={() => setState({ reagentsOpen: true })} title="試薬表・収率計算">{Icons.table}<span className="lbl">試薬表</span></button>
+        <button className="top-btn wide-only" onClick={cleanStructure} title="構造を整える (Ctrl+Shift+K)">{Icons.clean}<span className="lbl">整える</span></button>
+        <button className="top-btn wide-only" onClick={autoLayoutScheme} title="反応式を自動で並べる (Ctrl+L)">{Icons.layout}<span className="lbl">整列</span></button>
+        <button className="top-btn wide-only" onClick={applyArrowsToNext} title="曲がった矢印を適用して次の構造を作る (Ctrl+Enter)。選んだ矢印だけにも適用できます">{Icons.next}<span className="lbl">次の構造</span></button>
+        <button className="top-btn wide-only" onClick={() => setState({ reagentsOpen: true })} title="試薬表・収率計算">{Icons.table}<span className="lbl">試薬表</span></button>
         <button className="top-btn primary" onClick={run(() => exportCurrent('copy-png'))} title="PNG をコピー (Ctrl+C)">{Icons.copy}<span className="lbl">PNG コピー</span></button>
         <Menu label="ファイル" icon={Icons.save}>
           <MenuItem onClick={() => addTab()} kbd="Ctrl+T">新しいタブ</MenuItem>
@@ -238,7 +238,16 @@ export function TopBar() {
             </MenuItem>
           ))}
         </Menu>
-        <button className="top-btn" onClick={() => setState({ helpOpen: true })} title="使い方">{Icons.help}</button>
+        {/* 狭い画面では上の 4 つと「使い方」をこのメニューにまとめる */}
+        <Menu label="その他" icon={Icons.more} className="narrow-only">
+          <MenuItem onClick={cleanStructure} kbd="Ctrl+Shift+K">構造を整える</MenuItem>
+          <MenuItem onClick={autoLayoutScheme} kbd="Ctrl+L">反応式を自動で並べる</MenuItem>
+          <MenuItem onClick={applyArrowsToNext} kbd="Ctrl+Enter">次の構造を作る</MenuItem>
+          <MenuItem onClick={() => setState({ reagentsOpen: true })}>試薬表・収率計算</MenuItem>
+          <hr />
+          <MenuItem onClick={() => setState({ helpOpen: true })}>使い方</MenuItem>
+        </Menu>
+        <button className="top-btn wide-only" onClick={() => setState({ helpOpen: true })} title="使い方">{Icons.help}</button>
         <button className={`top-btn ${panelOpen ? 'on' : ''}`} onClick={() => setState({ panelOpen: !panelOpen })} title="プロパティパネル">{Icons.panel}</button>
       </div>
       <input

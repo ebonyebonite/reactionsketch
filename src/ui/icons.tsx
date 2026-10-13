@@ -76,5 +76,6 @@ export const Icons = {
   next: S([<path key="a" d="M4 16C4 8 11 5 15 8" />, <path key="b" d="M12 6.5l3.6 1.7-1.4 3.7" />, <path key="c" d="M14 17h7M18 14l3 3-3 3" />]),
   polymer: S([<path key="a" d="M7 5H5v14h2M17 5h2v14h-2" />, <path key="b" d="M2 12h3l3-3 4 6 4-6 3 3h3" />, <text key="c" x="20" y="23" fontSize="6" fontStyle="italic" fill="currentColor" stroke="none">n</text>]),
   table: S([<rect key="a" x="3" y="5" width="18" height="14" rx="2" />, <path key="b" d="M3 10h18M3 14.5h18M9 5v14" />]),
+  more: S([<circle key="a" cx="5" cy="12" r="1.6" fill="currentColor" stroke="none" />, <circle key="b" cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />, <circle key="c" cx="19" cy="12" r="1.6" fill="currentColor" stroke="none" />]),
   fit: S(<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />),
 };

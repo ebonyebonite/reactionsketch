@@ -352,7 +352,7 @@ function DocPanel() {
           <li>原子に合わせて <kbd>+</kbd> <kbd>-</kbd> で電荷、<kbd>:</kbd> で非共有電子対、<kbd>.</kbd> でラジカル</li>
           <li>塩はラベルに <code>NH3+Cl-</code>・<code>NH3Cl</code>・<code>ONa</code> のように入力 (対イオンを横に置きます)</li>
           <li>ダブルクリックで原子ラベル (OMe, CO2Et …) や条件を入力</li>
-          <li><kbd>Ctrl</kbd>+<kbd>F</kbd> で名前・SMILES から構造を追加</li>
+          <li><kbd>Ctrl</kbd>+<kbd>F</kbd> で名前・SMILES から構造を追加。<code>r 反応名</code> で反応式を追加</li>
           <li><kbd>Ctrl</kbd>+<kbd>C</kbd> で選択範囲 (なければ全体) を PNG でコピー</li>
         </ul>
       </section>

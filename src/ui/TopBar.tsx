@@ -1,8 +1,9 @@
 // 上部バー: 構造の検索・ファイル・書き出し・編集操作
 import { useEffect, useRef, useState } from 'react';
 import { activeTab, addTab, getState, redo, setState, toast, toProject, undo, useStore } from '../editor/store';
-import { addStructureFromQuery, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment } from '../editor/actions';
+import { addReactionFromQuery, addStructureFromQuery, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment } from '../editor/actions';
 import { suggestDictionary } from '../chem/dictionary';
+import { reactionQuery, searchReactions } from '../chem/reactions';
 import { copyPng, exportTarget, isEmpty, projectBlob, renderPdf, renderPng, safeFilename, saveBlob, svgString, cdxmlString, copyText } from '../io/export';
 import { openFiles } from '../io/open';
 import { molfileOf, smilesOf } from '../chem/rdkit';
@@ -18,7 +19,13 @@ export function SearchBox() {
   const [idx, setIdx] = useState(-1);
   const busy = useStore((s) => s.busy);
   const ref = useRef<HTMLInputElement>(null);
-  const sugg = q.trim() ? suggestDictionary(q, 8) : [];
+  // 「r 反応名」は反応の検索
+  const rq = reactionQuery(q);
+  const sugg: { name: string; alt: string; submit: string }[] = rq !== null
+    ? (/->|→|>|=>|⇒/.test(rq) ? [] : searchReactions(rq, 8).map((s) => ({ name: s.name, alt: s.reaction.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: `r ${s.reaction.names[0]}` })))
+    : q.trim()
+      ? suggestDictionary(q, 8).map((s) => ({ name: s.name, alt: s.entry.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: s.name }))
+      : [];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,7 +43,9 @@ export function SearchBox() {
     if (!text.trim()) return;
     setOpen(false);
     try {
-      await addStructureFromQuery(text);
+      const r = reactionQuery(text);
+      if (r !== null) await addReactionFromQuery(r);
+      else await addStructureFromQuery(text);
       setQ('');
       ref.current?.blur();
     } catch {
@@ -50,7 +59,7 @@ export function SearchBox() {
       <input
         ref={ref}
         value={q}
-        placeholder="名前・IUPAC 名・SMILES・CAS で追加 (例: 酢酸エチル, 2-methylpropan-1-ol)   Ctrl+F"
+        placeholder="名前・SMILES・CAS で追加 / r 反応名 で反応を追加 (例: 酢酸エチル, r アルドール)   Ctrl+F"
         aria-label="化合物を名前・SMILES で検索して追加"
         onChange={(e) => {
           setQ(e.target.value);
@@ -69,7 +78,7 @@ export function SearchBox() {
             setIdx((i) => Math.max(-1, i - 1));
           } else if (e.key === 'Enter') {
             e.preventDefault();
-            submit(idx >= 0 && sugg[idx] ? sugg[idx].name : q);
+            submit(idx >= 0 && sugg[idx] ? sugg[idx].submit : q);
           } else if (e.key === 'Escape') {
             setOpen(false);
             ref.current?.blur();
@@ -81,9 +90,9 @@ export function SearchBox() {
       {open && sugg.length > 0 && (
         <ul className="suggest" role="listbox">
           {sugg.map((s, i) => (
-            <li key={s.name} className={i === idx ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); submit(s.name); }}>
+            <li key={s.submit} className={i === idx ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); submit(s.submit); }}>
               <span>{s.name}</span>
-              <span className="alt">{s.entry.names.filter((n) => n !== s.name).slice(0, 2).join(' / ')}</span>
+              <span className="alt">{s.alt}</span>
             </li>
           ))}
         </ul>

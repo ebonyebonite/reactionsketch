@@ -9,7 +9,7 @@ import { layoutRepeatUnit, repeatUnitBracket } from './model/polymer';
 
 type Ref = { mol: number; atom: number } | { mol: number; bond: [number, number] };
 
-class Builder {
+export class Builder {
   doc: Doc = emptyDoc();
   mols: Id[][] = [];
   x = 0;

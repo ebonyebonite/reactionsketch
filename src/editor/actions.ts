@@ -12,6 +12,8 @@ import { activeTab, commit, getState, setState, setView, toast } from './store';
 import { buildScene, componentBox } from '../render/scene';
 import { cleanComponents, expandLabels, structureFromText } from '../chem/rdkit';
 import { searchStructure } from '../chem/names';
+import { searchReactions } from '../chem/reactions';
+import { buildReactionDoc } from '../reactionScheme';
 import { applyArrows, separateFragments } from '../model/mechanism';
 import { parseSalt, withCounterIon, type CounterIon } from '../model/salt';
 import { asRepeatUnit, layoutRepeatUnit, monomerToRepeatUnit, polymerizableBond, repeatUnitBracket } from '../model/polymer';
@@ -203,6 +205,57 @@ export async function addStructureFromQuery(query: string, at?: { x: number; y: 
     if (!quiet) toast(`${r.title ? r.title + ' — ' : ''}${r.source} から追加しました`);
   } catch (e) {
     if (!quiet) toast((e as Error).message, 'error');
+    throw e;
+  } finally {
+    setState({ busy: null });
+  }
+}
+
+/**
+ * 反応を追加する (検索欄の「r …」)。
+ *   反応名 (内蔵辞書) / 反応 SMILES (A.B>試薬>C) / 化合物名で書いた式 (A + B -> C ; 試薬 ; 条件)
+ */
+export async function addReactionFromQuery(query: string, at?: { x: number; y: number }): Promise<void> {
+  const q = query.trim();
+  if (!q) {
+    toast('反応名を入力してください (例: r アルドール, r Diels-Alder, r 酢酸 + エタノール -> 酢酸エチル)', 'error');
+    throw new Error('empty');
+  }
+  setState({ busy: `反応「${q.slice(0, 30)}」を準備中…` });
+  try {
+    let frag: Doc;
+    let msg: string;
+    const arrow = /\s*(?:->|→|⟶|=>|⇒)\s*/;
+    if (/>/.test(q) && !arrow.test(q) && !/\s/.test(q)) {
+      // 反応 SMILES: 原料>試薬>生成物 (試薬は省略可: 原料>>生成物)
+      const parts = q.split('>');
+      if (parts.length !== 3) throw new Error('反応 SMILES は「原料>>生成物」の形で入力してください');
+      const [l, m, r] = parts;
+      frag = await buildReactionDoc(l.split('.').filter(Boolean), r.split('.').filter(Boolean), m.replace(/\./g, ', '));
+      msg = '反応 SMILES から追加しました';
+    } else if (arrow.test(q)) {
+      // 化合物名で書いた式。各化合物は名前検索 (内蔵辞書 → PubChem など) で引く
+      const [eq, above = '', below = ''] = q.split(/\s*[;；]\s*/);
+      const [l, r = ''] = eq.split(arrow);
+      const side = (t: string) => t.split(/\s+\+\s+|\s*＋\s*/).map((x) => x.trim()).filter(Boolean);
+      const [L, R] = [side(l), side(r)];
+      if (!L.length || !R.length) throw new Error('「原料 + 原料 -> 生成物」の形で入力してください');
+      const found = await Promise.all([...L, ...R].map((n) => searchStructure(n).catch((e: Error) => { throw new Error(`「${n}」: ${e.message}`); })));
+      const smi = found.map((f) => f.structure);
+      frag = await buildReactionDoc(smi.slice(0, L.length), smi.slice(L.length), above, below);
+      const srcs = [...new Set(found.map((f) => f.source))].join('・');
+      msg = `${srcs} から反応式を作りました`;
+    } else {
+      const hit = searchReactions(q, 1)[0];
+      if (!hit) throw new Error(`反応「${q}」は内蔵辞書にありません。「r 原料 + 原料 -> 生成物 ; 試薬」の形なら化合物名から作れます`);
+      const r = hit.reaction;
+      frag = await buildReactionDoc(r.reactants, r.products, r.above, r.below);
+      msg = `${r.names[0]} を追加しました`;
+    }
+    placeFragment(frag, at);
+    toast(msg);
+  } catch (e) {
+    if ((e as Error).message !== 'empty') toast((e as Error).message, 'error');
     throw e;
   } finally {
     setState({ busy: null });

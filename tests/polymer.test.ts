@@ -42,12 +42,18 @@ describe('高分子の名前検索', () => {
       const laid = asRepeatUnit(d);
       expect(Object.values(laid.objects).filter((o) => o.type === 'bracket').length, p.names[0]).toBe(1);
       const s = Object.values(laid.atoms).filter((a) => a.label === '*');
-      // 括弧は両端の結合をまたぐ (* は括弧の外)
+      // 括弧の左右の線は、それぞれ次の単位へつながる結合 (* への結合) 1 本だけをまたぐ
       const br = Object.values(laid.objects).find((o) => o.type === 'bracket')!;
-      const xs = s.map((a) => a.x).sort((a, b) => a - b);
-      if (br.type === 'bracket') {
-        expect(br.x, p.names[0]).toBeGreaterThan(xs[0]);
-        expect(br.x + br.w, p.names[0]).toBeLessThan(xs[1]);
+      if (br.type !== 'bracket') continue;
+      for (const lx of [br.x, br.x + br.w]) {
+        const crossing = Object.values(laid.bonds).filter((b) => {
+          const A = laid.atoms[b.a1], B = laid.atoms[b.a2];
+          if ((A.x - lx) * (B.x - lx) >= 0) return false;
+          const y = A.y + ((lx - A.x) / (B.x - A.x)) * (B.y - A.y);
+          return y > br.y && y < br.y + br.h;
+        });
+        expect(crossing.length, `${p.names[0]} x=${lx}`).toBe(1);
+        expect([laid.atoms[crossing[0].a1].label, laid.atoms[crossing[0].a2].label], p.names[0]).toContain('*');
       }
     }
   });

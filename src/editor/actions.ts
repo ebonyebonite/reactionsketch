@@ -13,7 +13,7 @@ import { buildScene, componentBox } from '../render/scene';
 import { cleanComponents, expandLabels, structureFromText } from '../chem/rdkit';
 import { searchStructure } from '../chem/names';
 import { applyArrows, separateFragments } from '../model/mechanism';
-import { layoutRepeatUnit, monomerToRepeatUnit, repeatUnitBracket } from '../model/polymer';
+import { asRepeatUnit, layoutRepeatUnit, monomerToRepeatUnit, polymerizableBond, repeatUnitBracket } from '../model/polymer';
 
 export const doc = (): Doc => activeTab().doc;
 
@@ -178,9 +178,17 @@ function offsetPaste(frag: Doc): { x: number; y: number } | undefined {
 export async function addStructureFromQuery(query: string, at?: { x: number; y: number }, quiet = false): Promise<void> {
   setState({ busy: `「${query.slice(0, 30)}」を検索中…` });
   try {
-    const r = await searchStructure(query);
-    const frag = await structureFromText(r.structure);
-    placeFragment(frag, at);
+    const r = await searchStructure(query, async (smi) => {
+      const m = await structureFromText(smi);
+      return !!polymerizableBond(m, Object.keys(m.atoms));
+    });
+    let frag = await structureFromText(r.structure);
+    // 「ポリ○○」: モノマーの C=C を開いて繰り返し単位にする
+    if (r.polymerize) {
+      const unit = monomerToRepeatUnit(frag, Object.keys(frag.atoms));
+      if (unit) frag = await cleanComponents(unit, Object.keys(unit.atoms)).catch(() => unit);
+    }
+    placeFragment(asRepeatUnit(frag), at);
     if (!quiet) toast(`${r.title ? r.title + ' — ' : ''}${r.source} から追加しました`);
   } catch (e) {
     if (!quiet) toast((e as Error).message, 'error');

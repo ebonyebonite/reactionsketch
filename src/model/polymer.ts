@@ -2,7 +2,7 @@
 import { newId, STAR, type Bracket, type Doc, type Id } from './types';
 import { ACS } from './style';
 import { componentOf, neighbors, smallestRingOfBond } from './graph';
-import { bestBondAngle, emptySelection, extractSelection, newAtom, newBond, withAtoms, withBonds } from './edit';
+import { bestBondAngle, emptySelection, extractSelection, newAtom, newBond, withAtoms, withBonds, withObject } from './edit';
 import { buildScene, componentBox } from '../render/scene';
 
 export const isStar = (doc: Doc, id: Id) => doc.atoms[id]?.label === STAR;
@@ -98,6 +98,25 @@ export function levelStars(doc: Doc): Doc {
 
 export { componentOf };
 
+/** 木構造の側鎖をジグザグに置く。dir は親からこの原子への向き、sign は次に曲がる向き、axis は側鎖全体の向き */
+function zigzagTree(doc: Doc, atoms: Doc['atoms'], id: Id, parent: Id, p: { x: number; y: number }, dir: number, sign: number, axis: number): void {
+  atoms[id] = { ...atoms[id], x: p.x, y: p.y };
+  const size = (a: Id, from: Id): number => 1 + neighbors(doc, a).filter((m) => m.atom.id !== from).reduce((t, m) => t + size(m.atom.id, a), 0);
+  const kids = neighbors(doc, id)
+    .filter((m) => m.atom.id !== parent)
+    .sort((a, b) => size(b.atom.id, id) - size(a.atom.id, id));
+  const deg = Math.PI / 180;
+  // 大きい枝が側鎖の向き (axis: 真上か真下) に近づく方へ曲げる。同じなら交互に
+  const off = (t: number) => Math.abs(Math.atan2(Math.sin(dir + t * deg - axis), Math.cos(dir + t * deg - axis)));
+  if (kids.length <= 2 && Math.abs(off(60) - off(-60)) > 1e-6) sign = off(60) < off(-60) ? 1 : -1;
+  const turns = kids.length === 1 ? [sign * 60] : kids.length === 2 ? [sign * 60, -sign * 60] : [sign * 90, -sign * 90, 0, 180];
+  kids.forEach((m, k) => {
+    const d = dir + (turns[k % turns.length] ?? 0) * deg;
+    const L = ACS.bondLength;
+    zigzagTree(doc, atoms, m.atom.id, id, { x: p.x + L * Math.cos(d), y: p.y + L * Math.sin(d) }, d, -Math.sign(turns[k] || sign) || -sign, axis);
+  });
+}
+
 /** 2 つの末端 (*) を結ぶ最短経路 (主鎖) */
 function backbonePath(doc: Doc, s1: Id, s2: Id): Id[] | null {
   const prev = new Map<Id, Id | null>([[s1, null]]);
@@ -164,6 +183,12 @@ export function layoutRepeatUnit(doc: Doc): Doc {
       const A = doc.atoms[id];
       const cur = Math.atan2(n.atom.y - A.y, n.atom.x - A.x);
       const target = (dirs[k % dirs.length] * Math.PI) / 180;
+      // 環のない側鎖 (エステルなど) は、主鎖から縦に伸びるジグザグに並べ直す
+      const inner = Object.values(doc.bonds).filter((b) => tree.has(b.a1) && tree.has(b.a2)).length;
+      if (inner === tree.size - 1) {
+        zigzagTree(doc, atoms, n.atom.id, id, { x: pos[i].x + L * Math.cos(target), y: pos[i].y + L * Math.sin(target) }, target, 1, up ? -Math.PI / 2 : Math.PI / 2);
+        return;
+      }
       const rot = target - cur;
       const c = Math.cos(rot), s = Math.sin(rot);
       for (const t of tree) {
@@ -178,8 +203,17 @@ export function layoutRepeatUnit(doc: Doc): Doc {
   const inner = ids.filter((id) => !isStar(doc, id));
   const box = componentBox(out, inner, buildScene(out).layouts);
   const [first, last] = [path[0], path[path.length - 1]];
-  const shift = (id: Id, x: number) => (out = { ...out, atoms: { ...out.atoms, [id]: { ...out.atoms[id], x } } });
-  if (out.atoms[first].x > box.x1 - 7) shift(first, box.x1 - 7);
-  if (out.atoms[last].x < box.x2 + 7) shift(last, box.x2 + 7);
+  // 伸ばすときは隣の原子と同じ高さにして、括弧を水平にまたぐ —[ ]n— の形にする
+  const shift = (id: Id, nb: Id, x: number) => (out = { ...out, atoms: { ...out.atoms, [id]: { ...out.atoms[id], x, y: out.atoms[nb].y } } });
+  if (out.atoms[first].x > box.x1 - 7) shift(first, path[1], box.x1 - 7);
+  if (out.atoms[last].x < box.x2 + 7) shift(last, path[path.length - 2], box.x2 + 7);
   return out;
+}
+
+/** 末端 (*) が 2 つある分子なら、繰り返し単位として並べて括弧 [ ]n で囲む (名前検索・SMILES 入力用) */
+export function asRepeatUnit(doc: Doc): Doc {
+  const stars = Object.keys(doc.atoms).filter((id) => isStar(doc, id));
+  if (stars.length !== 2 || !componentOf(doc, stars[0]).includes(stars[1])) return doc;
+  const laid = layoutRepeatUnit(doc);
+  return withObject(laid, repeatUnitBracket(laid, componentOf(laid, stars[0])));
 }

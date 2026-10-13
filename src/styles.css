@@ -243,3 +243,26 @@ kbd {
   }
   .statusbar .hint { display: none; }
 }
+.mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mini.primary svg { width: 15px; height: 15px; }
+.modal.wide { width: min(1100px, 100%); }
+.btns .spacer { flex: 1; }
+.table-wrap { overflow-x: auto; margin-top: 10px; }
+table.reagents { border-collapse: collapse; font-size: 12.5px; min-width: 860px; width: 100%; }
+table.reagents th { text-align: left; font-weight: 600; color: var(--muted); padding: 4px 4px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+table.reagents td { padding: 3px 3px; border-bottom: 1px solid var(--border); }
+table.reagents tr.product td { background: var(--accent-soft); }
+table.reagents select, .cell {
+  font: inherit; width: 100%; min-width: 58px; padding: 3px 5px; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--panel-2); color: var(--text);
+}
+.cell.name { min-width: 120px; }
+.cell::placeholder { color: var(--muted); opacity: 0.85; }
+.cell:disabled { opacity: 0.4; }
+.ro { font-variant-numeric: tabular-nums; padding: 0 5px; }
+td.yield { white-space: nowrap; font-weight: 600; }
+.ctx-menu { right: auto; min-width: 240px; max-width: 300px; z-index: 80; }
+.ctx-title { font-size: 11px; font-weight: 650; color: var(--muted); padding: 6px 10px 2px; letter-spacing: 0.04em; }
+.ctx-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px; }
+.ctx-chips .mini { min-height: 24px; padding: 2px 7px; }
+.ctx-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }

@@ -6,7 +6,7 @@ import { components } from '../model/graph';
 import { exactMass, formulaOf, formulaText, hillOrder, hrmsSentence, molecularWeight, type Adduct } from '../model/formula';
 import { activeTab, commit, endTransient, setState, toast, updateTransient, useStore } from '../editor/store';
 import {
-  addCompoundNumber, alignSelection, cleanStructure, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
+  addCompoundNumber, addRepeatBracket, alignSelection, applyArrowsToNext, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
 } from '../editor/actions';
 import { smilesOf } from '../chem/rdkit';
 import { nameFromSmiles } from '../chem/names';
@@ -31,6 +31,8 @@ function MoleculeInfo({ doc, atomIds }: { doc: Doc; atomIds: Id[] }) {
   const [smiles, setSmiles] = useState<string>('');
   const [name, setName] = useState<string>('');
   const [adduct, setAdduct] = useState<Adduct>('[M+H]+');
+  const [dp, setDp] = useState(100);
+  const isPolymer = atomIds.filter((id) => doc.atoms[id]?.label === '*').length >= 2;
   const key = atomIds.join(',');
   useEffect(() => {
     let alive = true;
@@ -55,7 +57,14 @@ function MoleculeInfo({ doc, atomIds }: { doc: Doc; atomIds: Id[] }) {
         <FormulaView counts={f.counts} />
         {f.charge !== 0 && <sup>{Math.abs(f.charge) > 1 ? Math.abs(f.charge) : ''}{f.charge > 0 ? '+' : '−'}</sup>}
       </div>
-      <div className="row"><span className="k">分子量</span><span>{isFinite(mw) ? mw.toFixed(2) : '—'}</span></div>
+      <div className="row"><span className="k">{isPolymer ? '単位の式量' : '分子量'}</span><span>{isFinite(mw) ? mw.toFixed(2) : '—'}</span></div>
+      {isPolymer && (
+        <div className="row">
+          <span className="k">重合度 n</span>
+          <input type="number" className="num" min={1} value={dp} onChange={(e) => setDp(Math.max(1, parseInt(e.target.value, 10) || 1))} />
+          <span>M<sub>n</sub> ≈ {isFinite(mw) ? (mw * dp).toLocaleString('ja-JP', { maximumFractionDigits: 0 }) : '—'}</span>
+        </div>
+      )}
       <div className="row"><span className="k">精密質量</span><span>{isFinite(em) ? em.toFixed(4) : '—'}</span></div>
       {f.unknown.length > 0 && <div className="warn">計算に含めていないラベル: {[...new Set(f.unknown)].join(', ')}</div>}
       <div className="row">
@@ -180,7 +189,10 @@ function CurvedPanel({ arrow }: { arrow: CurvedArrow }) {
         <button className="mini" onClick={() => set({ bend: -arrow.bend })}>反対側に曲げる</button>
         <button className="mini" onClick={() => set({ from: arrow.to, to: arrow.from, bend: -arrow.bend })}>向きを逆に</button>
       </div>
-      <p className="tip">中央の ○ をドラッグで曲がり具合、両端をドラッグで付け替え。</p>
+      <div className="row">
+        <button className="mini primary" onClick={applyArrowsToNext}>{Icons.next}矢印を適用して次の構造 (Ctrl+Enter)</button>
+      </div>
+      <p className="tip">中央の ○ をドラッグで曲がり具合、両端をドラッグで付け替え。矢印を選んでいればその矢印だけ、選んでいなければタブ内のすべての矢印を適用します。</p>
     </section>
   );
 }
@@ -260,9 +272,14 @@ function BracketPanel({ b }: { b: Bracket }) {
         <button className={`mini ${b.shape === 'round' ? 'on' : ''}`} onClick={() => set({ shape: 'round' })}>( )</button>
       </div>
       <div className="row">
-        <span className="k">右上の記号</span>
-        {['‡', '+', '−', '•', ''].map((l) => <button key={l || 'none'} className={`mini ${b.label === l ? 'on' : ''}`} onClick={() => set({ label: l })}>{l || 'なし'}</button>)}
+        <span className="k">記号</span>
+        {['‡', '+', '−', '•', 'n', 'm', ''].map((l) => <button key={l || 'none'} className={`mini ${b.label === l ? 'on' : ''}`} onClick={() => set({ label: l, labelPos: /^[a-z]$/.test(l) ? 'bottom' : b.labelPos })}>{l || 'なし'}</button>)}
         <input className="num" value={b.label} onChange={(e) => set({ label: e.target.value })} />
+      </div>
+      <div className="row">
+        <span className="k">位置</span>
+        <button className={`mini ${b.labelPos !== 'bottom' ? 'on' : ''}`} onClick={() => set({ labelPos: 'top' })}>右上 (遷移状態)</button>
+        <button className={`mini ${b.labelPos === 'bottom' ? 'on' : ''}`} onClick={() => set({ labelPos: 'bottom' })}>右下 (高分子)</button>
       </div>
     </section>
   );
@@ -281,6 +298,10 @@ function DocPanel() {
         <label className="row check">
           <input type="checkbox" checked={doc.settings.circledCharges} onChange={(e) => commit({ ...doc, settings: { ...doc.settings, circledCharges: e.target.checked } })} />
           電荷を ⊕ ⊖ (丸囲み) で表示
+        </label>
+        <label className="row check">
+          <input type="checkbox" checked={!!doc.settings.showStereo} onChange={(e) => commit({ ...doc, settings: { ...doc.settings, showStereo: e.target.checked || undefined } })} />
+          R/S・E/Z を表示 (くさび結合から自動判定)
         </label>
         <div className="row">
           <button className="mini" onClick={renumberCompounds}>化合物番号を左から振り直す</button>
@@ -376,6 +397,8 @@ export function Inspector() {
           <div className="btns">
             <button className="mini" onClick={() => molGroups.forEach((c) => addCompoundNumber(c[0]))}>番号を付ける</button>
             <button className="mini" onClick={expandSelectedLabels}>略号を展開</button>
+            <button className="mini" onClick={addRepeatBracket} title="選んだ分子を [ ]n で囲む (両端の * 原子をまたぐ)">{Icons.polymer}繰り返し単位</button>
+            <button className="mini" onClick={polymerizeSelected} title="モノマーの C=C を開いて繰り返し単位を作る">重合 (モノマー → ポリマー)</button>
             {molGroups.length > 1 && (
               <>
                 <button className="mini" onClick={() => alignSelection('vcenter')}>上下中央揃え</button>

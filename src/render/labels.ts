@@ -121,7 +121,7 @@ export function layoutAtom(doc: Doc, atom: Atom): AtomLayout {
   const deg = angles.length;
   // 炭素は隠す。ただし 2 原子だけの小さな分子 (CH3Br, CH3OH など) の末端は H3C と書く
   const isHiddenCarbon =
-    !atom.label && atom.element === 'C' && !atom.showLabel && deg > 0 && !(deg === 1 && componentOf(doc, atom.id).length <= 2);
+    atom.label === '*' || !atom.label && atom.element === 'C' && !atom.showLabel && deg > 0 && !(deg === 1 && componentOf(doc, atom.id).length <= 2);
   const baseY = atom.y + (CAP_HEIGHT * SIZE) / 2;
   const glyphs: Glyph[] = [];
   let clip: Box | null = null;

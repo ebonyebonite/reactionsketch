@@ -12,6 +12,8 @@ import { activeTab, commit, getState, setState, setView, toast } from './store';
 import { buildScene, componentBox } from '../render/scene';
 import { cleanComponents, expandLabels, structureFromText } from '../chem/rdkit';
 import { searchStructure } from '../chem/names';
+import { applyArrows, separateFragments } from '../model/mechanism';
+import { layoutRepeatUnit, monomerToRepeatUnit, repeatUnitBracket } from '../model/polymer';
 
 export const doc = (): Doc => activeTab().doc;
 
@@ -322,6 +324,9 @@ export function layoutSchemeDoc(d: Doc): Doc | null {
   const items: Item[] = [];
   for (const c of components(d)) {
     const box = componentBox(d, c, scene.layouts);
+    // 左に付けた係数 (n など) も分子の幅に含める
+    const coef = Object.values(d.objects).find((o) => o.type === 'text' && o.attachAtom && o.attachPos === 'left' && c.includes(o.attachAtom));
+    if (coef && scene.texts[coef.id]) box.x1 = Math.min(box.x1, scene.texts[coef.id].bbox.x1 - 1);
     items.push({ kind: 'mol', atoms: c, box });
   }
   for (const id of d.order) {
@@ -435,6 +440,7 @@ export function hoverHotkey(key: string): boolean {
     if (key === '+' || key === '=') { commit(updateAtom(d, a.id, { charge: a.charge + 1 })); return true; }
     if (key === '-') { commit(updateAtom(d, a.id, { charge: a.charge - 1 })); return true; }
     if (key === '0') { commit(updateAtom(d, a.id, { charge: 0 })); return true; }
+    if (key === '*') { commit(updateAtom(d, a.id, { element: 'C', label: a.label === '*' ? undefined : '*', hCount: undefined })); return true; }
     if (key === '.') { commit(updateAtom(d, a.id, { radical: (a.radical + 1) % 3 })); return true; }
     if (key === ':') { commit(updateAtom(d, a.id, { lonePairs: (a.lonePairs + 1) % 4 })); return true; }
     return false;
@@ -470,4 +476,144 @@ export function deleteHovered(): boolean {
   commit(deleteSelection(doc(), sel));
   setState({ hover: null });
   return true;
+}
+
+// ---- 反応機構: 矢印を適用して次の構造を作る ----
+
+export async function applyArrowsToNext(): Promise<void> {
+  const d = doc();
+  const s = getState().selection;
+  const selectedArrows = [...s.objects].filter((id) => d.objects[id]?.type === 'curved');
+  let r;
+  try {
+    r = applyArrows(d, selectedArrows.length ? selectedArrows : undefined);
+  } catch (e) {
+    toast((e as Error).message, 'error');
+    return;
+  }
+  let product = separateFragments(r.product, r.broken);
+  if (r.needsClean) {
+    setState({ busy: '次の構造を配置しています…' });
+    try {
+      product = await cleanComponents(product, Object.keys(product.atoms));
+    } catch {
+      /* 整形できなくても続ける */
+    } finally {
+      setState({ busy: null });
+    }
+  }
+  product = arrangeFragments(product);
+  const scene = buildScene(d);
+  const reactBox = componentBoxOfAtoms(d, r.involvedAtoms, scene);
+  const cy = (reactBox.y1 + reactBox.y2) / 2;
+  const startX = (scene.bbox?.x2 ?? reactBox.x2) + 10;
+  const arrow: ReactionArrow = {
+    id: newId('o'), type: 'reaction', kind: r.resonance ? 'resonance' : 'forward',
+    x1: startX, y1: cy, x2: startX + ACS.reactionArrowLength, y2: cy, above: '', below: '',
+  };
+  const pb = buildScene(product).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+  const dx = arrow.x2 + 10 - pb.x1;
+  const dy = cy - (pb.y1 + pb.y2) / 2;
+  const { doc: next, sel } = insertFragment(withObject(d, arrow), product, dx, dy);
+  commit(next, sel);
+  ensureVisible(arrow.x2 + 10 + (pb.x2 - pb.x1) / 2, cy, pb.x2 - pb.x1);
+  if (r.warnings.length) toast(r.warnings.join(' / '), 'error');
+  else toast(r.resonance ? '共鳴構造を作りました' : '次の構造を作りました。必要なら矢印を描き足して続けられます');
+}
+
+/** 複数の分子に分かれた生成物を、元の左右の順に横一列に並べて間に＋を置く */
+function arrangeFragments(d: Doc): Doc {
+  const comps = components(d);
+  if (comps.length < 2) return d;
+  const scene = buildScene(d);
+  const items = comps
+    .map((c) => ({ c, box: componentBox(d, c, scene.layouts) }))
+    .sort((a, b) => (a.box.x1 + a.box.x2) - (b.box.x1 + b.box.x2));
+  const cy = items.reduce((s, it) => s + (it.box.y1 + it.box.y2) / 2, 0) / items.length;
+  let next = d;
+  let cursor = items[0].box.x1;
+  items.forEach((it, i) => {
+    if (i > 0) {
+      next = withObject(next, { id: newId('o'), type: 'plus', x: cursor + 9, y: cy });
+      cursor += 18;
+    }
+    const dx = cursor - it.box.x1, dy = cy - (it.box.y1 + it.box.y2) / 2;
+    next = transformSelection(next, { atoms: new Set(it.c), bonds: new Set(), objects: new Set() }, (x, y) => [x + dx, y + dy]);
+    cursor += it.box.x2 - it.box.x1;
+  });
+  return next;
+}
+
+function componentBoxOfAtoms(d: Doc, atomIds: Id[], scene: ReturnType<typeof buildScene>) {
+  const all = new Set<Id>();
+  for (const id of atomIds) componentOf(d, id).forEach((x) => all.add(x));
+  return componentBox(d, [...all], scene.layouts);
+}
+
+// ---- 高分子 ----
+
+function selectedComponents(d: Doc): Id[][] {
+  const s = getState().selection;
+  const ids = selectedAtomIds(d, s);
+  const seen = new Set<Id>();
+  const out: Id[][] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    const c = componentOf(d, id);
+    c.forEach((x) => seen.add(x));
+    out.push(c);
+  }
+  return out;
+}
+
+/** 選んだ分子を繰り返し単位の括弧 [ ]n で囲む */
+export function addRepeatBracket(): void {
+  const d = doc();
+  const comps = selectedComponents(d);
+  if (!comps.length) {
+    toast('繰り返し単位にする分子を選択してください (両端に * を付けると括弧が結合をまたぎます)', 'error');
+    return;
+  }
+  let next = d;
+  for (const c of comps) next = withObject(next, repeatUnitBracket(next, c));
+  commit(next);
+}
+
+/** 選んだモノマーから、矢印の右に繰り返し単位 -[ ]n- を作る (付加重合) */
+export async function polymerizeSelected(): Promise<void> {
+  const d = doc();
+  const comps = selectedComponents(d);
+  if (comps.length !== 1) {
+    toast('モノマーを 1 つ選択してください', 'error');
+    return;
+  }
+  const comp = comps[0];
+  let unit = monomerToRepeatUnit(d, comp);
+  if (!unit) {
+    toast('重合できる C=C 二重結合 (環の外) が見つかりません', 'error');
+    return;
+  }
+  setState({ busy: '繰り返し単位を作っています…' });
+  try {
+    unit = await cleanComponents(unit, Object.keys(unit.atoms));
+  } catch {
+    /* 整形できなくても続ける */
+  } finally {
+    setState({ busy: null });
+  }
+  unit = layoutRepeatUnit(unit);
+  const scene = buildScene(d);
+  const mb = componentBox(d, comp, scene.layouts);
+  const cy = (mb.y1 + mb.y2) / 2;
+  // モノマーの前に係数 n
+  let next = withObject(d, { id: newId('o'), type: 'text', x: 0, y: 0, text: '*n*', size: ACS.captionSize, align: 'right', attachAtom: comp[0], attachPos: 'left' });
+  const x1 = (scene.bbox?.x2 ?? mb.x2) + 10;
+  const arrow: ReactionArrow = { id: newId('o'), type: 'reaction', kind: 'forward', x1, y1: cy, x2: x1 + ACS.reactionArrowLength, y2: cy, above: '', below: '' };
+  next = withObject(next, arrow);
+  const ub = buildScene(unit).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+  const { doc: placed, sel } = insertFragment(next, unit, arrow.x2 + 12 - ub.x1, cy - (ub.y1 + ub.y2) / 2);
+  const br = repeatUnitBracket(placed, [...sel.atoms]);
+  commit(withObject(placed, br), sel);
+  ensureVisible(arrow.x2 + 12 + (ub.x2 - ub.x1) / 2, cy, ub.x2 - ub.x1);
+  toast('繰り返し単位を作りました。矢印の上下に開始剤・条件を書けます');
 }

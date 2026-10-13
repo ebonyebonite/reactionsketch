@@ -6,6 +6,8 @@ import { Canvas } from './Canvas';
 import { Inspector } from './Inspector';
 import { TextEditor } from './TextEditor';
 import { Help } from './Help';
+import { ReagentDialog } from './ReagentDialog';
+import { ContextMenu } from './ContextMenu';
 import { activeTab, flushSave, setState, toast, useStore } from '../editor/store';
 import { fitView, installKeys } from '../editor/keys';
 import { openFiles } from '../io/open';
@@ -92,6 +94,8 @@ export function App() {
       <StatusBar />
       <Toast />
       <Help />
+      <ReagentDialog />
+      <ContextMenu />
     </div>
   );
 }

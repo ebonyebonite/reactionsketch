@@ -5,6 +5,7 @@ import { insertFragment, newAtom, newBond, updateAtom, withAtoms, withBonds, wit
 import { structureWithOrder } from './chem/rdkit';
 import { layoutSchemeDoc } from './editor/actions';
 import { defaultBend } from './editor/arrowUtil';
+import { layoutRepeatUnit, repeatUnitBracket } from './model/polymer';
 
 type Ref = { mol: number; atom: number } | { mol: number; bond: [number, number] };
 
@@ -13,8 +14,10 @@ class Builder {
   mols: Id[][] = [];
   x = 0;
 
-  async mol(smiles: string, patch: Record<number, { lonePairs?: number; charge?: number; radical?: number; label?: string }> = {}, flip = false): Promise<number> {
-    const { doc: frag, atomOrder } = await structureWithOrder(smiles);
+  async mol(smiles: string, patch: Record<number, { lonePairs?: number; charge?: number; radical?: number; label?: string }> = {}, flip = false, coef?: string): Promise<number> {
+    let { doc: frag, atomOrder } = await structureWithOrder(smiles);
+    // 高分子の繰り返し単位は末端 (*) が水平に並ぶように回す
+    if (smiles.includes('*')) frag = layoutRepeatUnit(frag);
     if (flip) for (const a of Object.values(frag.atoms)) a.x = -a.x;
     const xs = Object.values(frag.atoms).map((a) => a.x);
     const w = xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
@@ -26,6 +29,7 @@ class Builder {
     for (const [idx, p] of Object.entries(patch)) this.doc = updateAtom(this.doc, ids[Number(idx)], p);
     this.mols.push(ids);
     this.x += w + 40;
+    if (coef) this.doc = withObject(this.doc, { id: newId('o'), type: 'text', x: 0, y: 0, text: coef, size: ACS.captionSize, align: 'right', attachAtom: ids[0], attachPos: 'left' });
     return this.mols.length - 1;
   }
 
@@ -70,6 +74,11 @@ class Builder {
 
   finish(): Doc {
     let d = layoutSchemeDoc(this.doc) ?? this.doc;
+    // 繰り返し単位の括弧と係数
+    for (const ids of this.mols) {
+      if (ids.filter((id) => d.atoms[id]?.label === '*').length >= 2) d = withObject(d, repeatUnitBracket(d, ids));
+    }
+
     for (const p of this.pending) {
       const from = this.anchor(p.from), to = this.anchor(p.to);
       d = withObject(d, { id: newId('o'), type: 'curved', head: p.head, from, to, bend: p.bend ?? defaultBend(d, from, to) });
@@ -215,6 +224,38 @@ export const EXAMPLES: Example[] = [
       b.number(m1, '1');
       b.number(m2, '2');
       b.number(m3, '3');
+      return b.finish();
+    },
+  },
+  {
+    name: '付加重合 (スチレンのラジカル重合)',
+    build: async () => {
+      const b = new Builder();
+      await b.mol('C=Cc1ccccc1', {}, false, '*n*');
+      b.arrow('forward', 'AIBN', 'toluene, 70 °C');
+      await b.mol('*CC(*)c1ccccc1');
+      return b.finish();
+    },
+  },
+  {
+    name: '高分子反応 (ポリ酢酸ビニルのけん化)',
+    build: async () => {
+      const b = new Builder();
+      await b.mol('*CC(*)OC(C)=O');
+      b.arrow('forward', 'NaOH', 'MeOH/H2O');
+      await b.mol('*CC(*)O');
+      return b.finish();
+    },
+  },
+  {
+    name: '縮合重合 (ナイロン 66)',
+    build: async () => {
+      const b = new Builder();
+      await b.mol('OC(=O)CCCCC(=O)O', {}, false, '*n*');
+      b.plus();
+      await b.mol('NCCCCCCN', {}, false, '*n*');
+      b.arrow('forward', '', 'Δ, −H2O');
+      await b.mol('*C(=O)CCCCC(=O)NCCCCCCN*');
       return b.finish();
     },
   },

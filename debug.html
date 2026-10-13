@@ -1,16 +1,27 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#fff} svg{width:100%;height:auto;display:block;border-bottom:1px solid #ddd}</style></head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#fff} svg{width:100%;max-width:520px;height:auto;display:block;border-bottom:1px solid #ddd}</style></head>
 <body><div id="out"></div>
 <script type="module">
 import { EXAMPLES } from '/src/examples.ts';
+import { TEMPLATES } from '/src/templates.ts';
 import { standaloneSvg } from '/src/render/svg.ts';
+import { computeStereo } from '/src/chem/stereo.ts';
+import { structureFromText } from '/src/chem/rdkit.ts';
+import { applyArrows } from '/src/model/mechanism.ts';
 const q = new URLSearchParams(location.search);
-const i = parseInt(q.get('i') ?? '0', 10);
-const crop = q.get('crop');
-const ex = EXAMPLES[i];
-const d = await ex.build();
+let d, name;
+if (q.has('tpl')) { const t = TEMPLATES[+q.get('tpl')]; d = t.build(); name = t.name; }
+else if (q.has('smi')) { d = await structureFromText(q.get('smi')); name = q.get('smi'); }
+else { const ex = EXAMPLES[+(q.get('i') ?? 0)]; d = await ex.build(); name = ex.name; }
+if (q.has('apply')) { d = applyArrows(d).product; name += ' → 適用後'; }
+if (q.has('stereo')) { d = { ...d, settings: { ...d.settings, showStereo: true } }; await computeStereo(d); }
 let { svg } = standaloneSvg(d, { background: '#fff' });
-if (crop) { svg = svg.replace(/viewBox="[^"]*"/, `viewBox="${crop}"`); }
-document.getElementById('out').innerHTML = `<p style="font:14px sans-serif;margin:4px">${ex.name}</p>` + svg;
-window.__ready = true;
+document.getElementById('out').innerHTML = `<p style="font:14px sans-serif;margin:4px">${name}</p>` + svg;
+if (q.has('save')) {
+  // 確認用: 3 倍の解像度で PNG にして受け取りサーバへ送る
+  const { renderPng } = await import('/src/io/export.ts');
+  const png = await renderPng(d, { dpi: 216, transparent: false });
+  await fetch(`http://localhost:5181/frame?i=${q.get('save')}`, { method: 'POST', body: png });
+  document.title = 'saved';
+}
 </script></body></html>

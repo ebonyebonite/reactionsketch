@@ -213,3 +213,18 @@ export function suggestDictionary(prefix: string, limit = 8): { name: string; en
   }
   return out;
 }
+
+/** 液体の密度 (g/mL, 20–25 °C)。試薬表で体積を計算するのに使う */
+export const DENSITY: Record<string, number> = {
+  O: 1.0, CO: 0.792, CCO: 0.789, CCCO: 0.803, 'CC(C)O': 0.786, CCCCO: 0.81, 'CC(C)(C)O': 0.781, 'CC(C)=O': 0.784,
+  'CCOC(C)=O': 0.902, CCOCC: 0.713, C1CCOC1: 0.889, C1COCCO1: 1.033, ClCCl: 1.33, 'ClC(Cl)Cl': 1.49, 'ClC(Cl)(Cl)Cl': 1.59,
+  CCCCCC: 0.655, CCCCC: 0.626, c1ccccc1: 0.876, Cc1ccccc1: 0.867, 'CC#N': 0.786, 'CN(C)C=O': 0.944, 'CS(C)=O': 1.1,
+  c1ccncc1: 0.982, 'CC(=O)O': 1.049, 'O=CO': 1.22, 'OC(=O)C(F)(F)F': 1.49, 'CN1CCCC1=O': 1.03, COCCOC: 0.868,
+  'OS(=O)(=O)O': 1.83, 'CCN(CC)CC': 0.726, 'CCN(C(C)C)C(C)C': 0.742, 'C1CCC2=NCCCN2CC1': 1.02, 'ClS(Cl)=O': 1.64,
+  'ClC(=O)C(Cl)=O': 1.48, 'BrP(Br)Br': 2.85, 'CC(=O)OC(C)=O': 1.08, 'CC(Cl)=O': 1.10, 'CS(=O)(=O)Cl': 1.48,
+  'CC(C)C[AlH]CC(C)C': 0.798, BrBr: 3.1, 'C=Cc1ccccc1': 0.909, 'O=Cc1ccccc1': 1.044, 'CC(=O)c1ccccc1': 1.03,
+  'OCc1ccccc1': 1.044, 'BrCc1ccccc1': 1.44, CI: 2.28, CBr: 1.73, CCBr: 1.46, 'CC(C)Br': 1.31, 'CC(C)(C)Br': 1.22,
+  'O=C1CCCCC1': 0.947, 'OC1CCCCC1': 0.962, C1CCCCC1: 0.779, 'C1=CCCCC1': 0.811, 'Nc1ccccc1': 1.022, 'COc1ccccc1': 0.995,
+  'C=CC(=O)OC': 0.956, 'C=CC(C)=O': 0.864, 'CCOC(=O)CC(=O)OCC': 1.055, 'CCOC(=O)CC(C)=O': 1.03, OO: 1.11,
+  'C1CCNCC1': 0.862, 'C1COCCN1': 1.0, 'C1CCNC1': 0.866, 'CC(=O)Oc1ccccc1C(=O)O': 1.35,
+};

@@ -1,13 +1,15 @@
 // 上部バー: 構造の検索・ファイル・書き出し・編集操作
 import { useEffect, useRef, useState } from 'react';
 import { activeTab, addTab, getState, redo, setState, toast, toProject, undo, useStore } from '../editor/store';
-import { addStructureFromQuery, autoLayoutScheme, cleanStructure } from '../editor/actions';
+import { addStructureFromQuery, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment } from '../editor/actions';
 import { suggestDictionary } from '../chem/dictionary';
 import { copyPng, exportTarget, isEmpty, projectBlob, renderPdf, renderPng, safeFilename, saveBlob, svgString, cdxmlString, copyText } from '../io/export';
 import { openFiles } from '../io/open';
 import { molfileOf, smilesOf } from '../chem/rdkit';
 import { components } from '../model/graph';
 import { EXAMPLES } from '../examples';
+import { TEMPLATES } from '../templates';
+import { computeStereo } from '../chem/stereo';
 import { Icons } from './icons';
 
 export function SearchBox() {
@@ -137,6 +139,8 @@ export async function exportCurrent(kind: 'png' | 'svg' | 'pdf' | 'pdf-all' | 'c
   const target = exportTarget(t.doc, s.selection);
   const name = safeFilename(t.name);
   if (kind !== 'project' && kind !== 'pdf-all' && isEmpty(target)) throw new Error('書き出すものがありません');
+  // R/S・E/Z を表示する設定なら、書き出す前に計算しておく
+  for (const d of kind === 'pdf-all' ? s.tabs.map((x) => x.doc) : [target]) if (d.settings.showStereo) await computeStereo(d);
   switch (kind) {
     case 'copy-png':
       await copyPng(target);
@@ -196,6 +200,8 @@ export function TopBar() {
         <button className="top-btn" onClick={redo} disabled={!canRedo} title="やり直す (Ctrl+Y)">{Icons.redo}</button>
         <button className="top-btn" onClick={cleanStructure} title="構造を整える (Ctrl+Shift+K)">{Icons.clean}<span className="lbl">整える</span></button>
         <button className="top-btn" onClick={autoLayoutScheme} title="反応式を自動で並べる (Ctrl+L)">{Icons.layout}<span className="lbl">整列</span></button>
+        <button className="top-btn" onClick={applyArrowsToNext} title="曲がった矢印を適用して次の構造を作る (Ctrl+Enter)。選んだ矢印だけにも適用できます">{Icons.next}<span className="lbl">次の構造</span></button>
+        <button className="top-btn" onClick={() => setState({ reagentsOpen: true })} title="試薬表・収率計算">{Icons.table}<span className="lbl">試薬表</span></button>
         <button className="top-btn primary" onClick={run(() => exportCurrent('copy-png'))} title="PNG をコピー (Ctrl+C)">{Icons.copy}<span className="lbl">PNG コピー</span></button>
         <Menu label="ファイル" icon={Icons.save}>
           <MenuItem onClick={() => addTab()} kbd="Ctrl+T">新しいタブ</MenuItem>
@@ -209,6 +215,11 @@ export function TopBar() {
           <MenuItem onClick={run(() => exportCurrent('cdxml'))}>ChemDraw (.cdxml) で保存</MenuItem>
           <MenuItem onClick={run(() => exportCurrent('mol'))}>MOL ファイルで保存</MenuItem>
           <MenuItem onClick={run(() => exportCurrent('copy-smiles'))}>SMILES をコピー</MenuItem>
+        </Menu>
+        <Menu label="テンプレート" icon={Icons.chairIcon}>
+          {TEMPLATES.map((t) => (
+            <MenuItem key={t.name} onClick={() => placeFragment(t.build())}>{t.name}</MenuItem>
+          ))}
         </Menu>
         <Menu label="例" icon={Icons.examples}>
           {EXAMPLES.map((ex) => (

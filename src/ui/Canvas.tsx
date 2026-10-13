@@ -18,12 +18,13 @@ import {
 } from '../editor/store';
 import { addCompoundNumber } from '../editor/actions';
 import { defaultBend } from '../editor/arrowUtil';
+import { computeStereo } from '../chem/stereo';
 
 type Pt = { x: number; y: number };
 
 type Drag =
   | { kind: 'none' }
-  | { kind: 'pan'; sx: number; sy: number; ox: number; oy: number }
+  | { kind: 'pan'; sx: number; sy: number; ox: number; oy: number; right?: boolean }
   | { kind: 'pinch'; d0: number; z0: number; cx: number; cy: number; ox: number; oy: number }
   | { kind: 'rubber'; start: Pt; cur: Pt; additive: boolean }
   | { kind: 'move'; start: Pt; base: Doc; sel: Selection; moved: boolean }
@@ -49,7 +50,17 @@ export function Canvas() {
   const doc = tab.doc;
   const view = tab.view;
   const scene = useMemo(() => buildScene(doc), [doc]);
-  const body = useMemo(() => docBodySvg(doc), [doc]);
+  const [stereoVer, setStereoVer] = useState(0);
+  useEffect(() => {
+    if (!doc.settings.showStereo) return;
+    let alive = true;
+    computeStereo(doc).then(() => alive && setStereoVer((v) => v + 1)).catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [doc]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const body = useMemo(() => docBodySvg(doc), [doc, stereoVer]);
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag>({ kind: 'none' });
@@ -183,7 +194,7 @@ export function Canvas() {
       return;
     }
     if (e.button === 1 || e.button === 2 || spaceDown.current) {
-      setD({ kind: 'pan', sx: e.clientX, sy: e.clientY, ox: v.ox, oy: v.oy });
+      setD({ kind: 'pan', sx: e.clientX, sy: e.clientY, ox: v.ox, oy: v.oy, right: e.button === 2 });
       return;
     }
     // ダブルタップ (タッチ) の判定
@@ -451,6 +462,27 @@ export function Canvas() {
     }
     setD({ kind: 'none' });
     switch (dr.kind) {
+      case 'pan': {
+        // 右クリック (ほとんど動かしていない) はメニュー、右ドラッグは画面の移動
+        if (dr.right && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < 5) {
+          const h = hitTest(d, buildScene(d), p.x, p.y, tol(10), { handlesFor: new Set() });
+          const target = h && h.kind !== 'handle' ? h : null;
+          // 右クリックしたものが選択されていなければ、それを選ぶ
+          if (target) {
+            const s = getState().selection;
+            const inSel = (target.kind === 'atom' && s.atoms.has(target.id)) || (target.kind === 'bond' && s.bonds.has(target.id)) || (target.kind === 'object' && s.objects.has(target.id));
+            if (!inSel) {
+              const one = emptySelection();
+              if (target.kind === 'atom') one.atoms.add(target.id);
+              if (target.kind === 'bond') one.bonds.add(target.id);
+              if (target.kind === 'object') one.objects.add(target.id);
+              setState({ selection: one });
+            }
+          }
+          setState({ contextMenu: { x: e.clientX, y: e.clientY, target, at: p } });
+        }
+        return;
+      }
       case 'rubber': {
         const items = itemsInRect(d, buildScene(d), dr.start.x, dr.start.y, p.x, p.y);
         const base = dr.additive ? getState().selection : emptySelection();

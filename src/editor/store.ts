@@ -61,6 +61,8 @@ export interface AppState {
   panelOpen: boolean;
   busy: string | null;
   helpOpen: boolean;
+  reagentsOpen: boolean;
+  contextMenu: { x: number; y: number; target: Hover | null; at: { x: number; y: number } } | null;
 }
 
 const STORAGE_KEY = 'reactionsketch.project.v1';
@@ -96,7 +98,7 @@ function loadInitial(): AppState {
   }
   return {
     tabs, activeId, tool: { kind: 'bond', order: 1, stereo: 'none' }, selection: emptySelection(), hover: null, editing: null, toast: null,
-    panelOpen: typeof window !== 'undefined' ? window.innerWidth > 900 : true, busy: null, helpOpen: false,
+    panelOpen: typeof window !== 'undefined' ? window.innerWidth > 900 : true, busy: null, helpOpen: false, reagentsOpen: false, contextMenu: null,
   };
 }
 
@@ -115,6 +117,7 @@ export function normalizeDoc(d: Partial<Doc>): Doc {
     a.radical ??= 0;
     a.lonePairs ??= 0;
   }
+  doc.reagents = d.reagents;
   for (const b of Object.values(doc.bonds)) {
     b.stereo ??= 'none';
     b.doublePos ??= 'auto';

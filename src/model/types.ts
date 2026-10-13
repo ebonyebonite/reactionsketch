@@ -22,7 +22,12 @@ export interface Atom {
   mapNo?: number;
   /** 水素数を固定 (未指定なら原子価から自動計算) */
   hCount?: number;
+  /** Newman 投影式の奥側の炭素 (円で表し、結合は円周から描く) */
+  newman?: 'back';
 }
+
+/** 高分子の末端 (繰り返し単位の外へ伸びる結合の先)。label が '*' の原子 */
+export const STAR = '*';
 
 export type BondStereo = 'none' | 'wedge' | 'hash' | 'wavy' | 'bold';
 export type DoublePos = 'auto' | 'left' | 'center' | 'right';
@@ -83,6 +88,8 @@ export interface TextBox {
   align: 'left' | 'center' | 'right';
   /** 化合物番号: 分子 (この原子を含む連結成分) の下に自動配置 */
   attachAtom?: Id;
+  /** 分子に付ける位置: below = 下 (化合物番号), left = 左 (係数 n など) */
+  attachPos?: 'below' | 'left';
 }
 
 export interface Bracket {
@@ -93,8 +100,10 @@ export interface Bracket {
   y: number;
   w: number;
   h: number;
-  /** 右上の文字 (‡, +, −, n など) */
+  /** 括弧の外の文字 (‡, +, −, n など) */
   label: string;
+  /** 文字の位置: top = 右上 (遷移状態 ‡), bottom = 右下 (高分子の n) */
+  labelPos?: 'top' | 'bottom';
 }
 
 export interface PlusSign {
@@ -109,6 +118,30 @@ export type GraphicObject = CurvedArrow | ReactionArrow | TextBox | Bracket | Pl
 export interface DocSettings {
   /** 電荷を ⊕ / ⊖ (丸囲み) で表示 */
   circledCharges: boolean;
+  /** R/S・E/Z を表示 */
+  showStereo?: boolean;
+}
+
+export type ReagentRole = 'substrate' | 'reagent' | 'catalyst' | 'solvent' | 'product';
+
+/** 試薬表の 1 行 (分子は連結成分の原子 1 つで指す。分子でない行は name と mw を手入力) */
+export interface ReagentRow {
+  id: Id;
+  atom?: Id;
+  name: string;
+  role: ReagentRole;
+  /** 手入力の分子量 (分子に結び付いていない行) */
+  mw?: number;
+  /** 量: mg / mL / mmol のいずれかを入力 */
+  mass?: number;
+  volume?: number;
+  mmol?: number;
+  /** 密度 g/mL (液体を体積で量るとき) */
+  density?: number;
+  /** 当量 (未入力なら mmol から計算) */
+  equiv?: number;
+  /** 濃度 mol/L (溶液の試薬) */
+  conc?: number;
 }
 
 export interface Doc {
@@ -118,6 +151,7 @@ export interface Doc {
   /** 描画順 (オブジェクトのみ) */
   order: Id[];
   settings: DocSettings;
+  reagents?: ReagentRow[];
 }
 
 export interface Tab {

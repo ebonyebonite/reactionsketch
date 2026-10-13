@@ -113,7 +113,7 @@ export function parseMolblock(text: string): { doc: Doc; atomOrder: Id[] } {
     let element = r.sym;
     let label: string | undefined;
     if (!isElement(element)) {
-      label = element === '*' || element === 'R' || element === 'R#' ? 'R' : element;
+      label = element === '*' || element === 'R' || element === 'R#' ? '*' : element;
       element = 'C';
     }
     const a = newAtom((r.x - cx) * k, -(r.y - cy) * k, element, {

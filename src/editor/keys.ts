@@ -1,7 +1,7 @@
 // キーボード操作
 import { addTab, activeTab, getState, redo, setState, setTool, setView, toast, undo } from './store';
 import {
-  autoLayoutScheme, cleanStructure, copySelection, cutSelection, deleteHovered, deleteSelected, hoverHotkey, nudgeSelection,
+  applyArrowsToNext, autoLayoutScheme, cleanStructure, copySelection, cutSelection, deleteHovered, deleteSelected, hoverHotkey, nudgeSelection,
   pasteFromClipboard, placeFragment, selectAll,
 } from './actions';
 import { selectionSize, emptySelection } from '../model/edit';
@@ -97,6 +97,10 @@ export function installKeys(): () => void {
           e.preventDefault();
           autoLayoutScheme();
           return;
+        case 'enter':
+          e.preventDefault();
+          applyArrowsToNext();
+          return;
         case 'k':
           if (e.shiftKey) {
             e.preventDefault();
@@ -131,7 +135,7 @@ export function installKeys(): () => void {
         if (a) setState({ editing: { kind: 'atom', id: a.id, x: a.x * v.zoom + v.ox, y: a.y * v.zoom + v.oy, value: a.label ?? (a.element === 'C' ? '' : a.element) } });
         return;
       }
-      const key = e.key === ':' || e.key === '+' || e.key === '.' ? e.key : k;
+      const key = e.key === ':' || e.key === '+' || e.key === '.' || e.key === '*' ? e.key : k;
       if (hoverHotkey(key)) {
         e.preventDefault();
         return;

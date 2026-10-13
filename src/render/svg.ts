@@ -4,6 +4,9 @@ import { ACS } from '../model/style';
 import { buildScene, bracketPath, type TextGeom } from './scene';
 import { arrowHead } from './arrows';
 import { spanSize, spanWidth } from './richtext';
+import { cachedStereo } from './stereoCache';
+import { freeDirections, neighborAngles } from './labels';
+import { doubleBondSide, NEWMAN_R } from './bonds';
 
 const f = (v: number) => (Math.round(v * 100) / 100).toString();
 
@@ -38,6 +41,11 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
   const scene = buildScene(doc);
   const lw = f(ACS.lineWidth);
   const parts: string[] = [];
+
+  // Newman 投影式の奥の炭素 (円)
+  for (const a of Object.values(doc.atoms)) {
+    if (a.newman === 'back') parts.push(`<circle cx="${f(a.x)}" cy="${f(a.y)}" r="${f(NEWMAN_R)}" fill="none" stroke="#000" stroke-width="${lw}"/>`);
+  }
 
   // 結合
   parts.push(`<g stroke="#000" stroke-width="${lw}" stroke-linecap="round" fill="none">`);
@@ -80,6 +88,33 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
     }
   }
 
+  // R/S・E/Z
+  const stereo = doc.settings.showStereo ? cachedStereo(doc) : undefined;
+  if (stereo) {
+    const st = (x: number, y: number, t: string) =>
+      `<text x="${f(x)}" y="${f(y + 2.4)}" font-size="7" text-anchor="middle" ${FONT} fill="#000">(<tspan font-style="italic">${esc(t)}</tspan>)</text>`;
+    for (const [id, lab] of Object.entries(stereo.atoms)) {
+      const a = doc.atoms[id];
+      const l = scene.layouts[id];
+      if (!a || !l) continue;
+      const occ = neighborAngles(doc, a);
+      if (l.visible) occ.push(0, Math.PI);
+      const [dir] = freeDirections(occ, 1, [Math.PI / 2]);
+      const r = l.visible ? 10 : 7.5;
+      parts.push(st(a.x + Math.cos(dir) * r, a.y + Math.sin(dir) * r, lab));
+    }
+    for (const [id, lab] of Object.entries(stereo.bonds)) {
+      const b = doc.bonds[id];
+      if (!b) continue;
+      const A = doc.atoms[b.a1], B = doc.atoms[b.a2];
+      const L = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+      let nx = -(B.y - A.y) / L, ny = (B.x - A.x) / L;
+      const side = doubleBondSide(doc, b, scene.layouts);
+      if (side > 0) { nx = -nx; ny = -ny; }
+      parts.push(st((A.x + B.x) / 2 + nx * 7, (A.y + B.y) / 2 + ny * 7, lab));
+    }
+  }
+
   // オブジェクト
   for (const oid of doc.order) {
     const o = doc.objects[oid];
@@ -104,7 +139,12 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
     } else if (o.type === 'bracket') {
       const bp = bracketPath(o);
       for (const d of bp.paths) parts.push(`<path d="${d}" fill="none" stroke="#000" stroke-width="${lw}"/>`);
-      if (bp.label) parts.push(`<text x="${f(bp.label.x)}" y="${f(bp.label.y)}" font-size="10" ${FONT} fill="#000">${esc(o.label)}</text>`);
+      if (bp.label) {
+        // 高分子の n などは右下に斜体の添字、遷移状態の ‡ は右上
+        const bottom = o.labelPos === 'bottom';
+        const italic = bottom && /^[a-z]$/.test(o.label) ? ' font-style="italic"' : '';
+        parts.push(`<text x="${f(bp.label.x)}" y="${f(bp.label.y)}" font-size="${bottom ? 8.5 : 10}" ${FONT}${italic} fill="#000">${esc(o.label)}</text>`);
+      }
     } else if (o.type === 'plus') {
       const s = 3.6;
       parts.push(`<line x1="${f(o.x - s)}" y1="${f(o.y)}" x2="${f(o.x + s)}" y2="${f(o.y)}" stroke="#000" stroke-width="${f(ACS.lineWidth * 1.2)}"/>`);
@@ -117,7 +157,7 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
 /** 書き出し用の完結した SVG。scale は 1pt あたりのピクセル数 (SVG の width/height に反映) */
 export function standaloneSvg(doc: Doc, opts: { margin?: number; background?: string | null; unit?: 'pt' | 'px'; scale?: number } = {}): { svg: string; width: number; height: number } {
   const scene = buildScene(doc);
-  const m = opts.margin ?? 6;
+  const m = (opts.margin ?? 6) + (doc.settings.showStereo ? 8 : 0);
   const b = scene.bbox ?? { x1: 0, y1: 0, x2: 10, y2: 10 };
   const x = b.x1 - m, y = b.y1 - m;
   const w = b.x2 - b.x1 + 2 * m, h = b.y2 - b.y1 + 2 * m;

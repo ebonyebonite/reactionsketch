@@ -403,11 +403,25 @@ export function addRing(doc: Doc, n: number, aromatic: boolean, target: RingTarg
 }
 
 /** いす形シクロヘキサン (テンプレート) */
+/**
+ * いす形の頂点 (結合長 1 の単位)。3 方向の辺 a, b, c とその逆向きでできた六角形で、
+ * 左端が下、右端が上の教科書どおりの形になる。
+ */
+export const CHAIR_POINTS: [number, number][] = (() => {
+  const a: [number, number] = [0.866, -0.5], b: [number, number] = [0.966, 0.259], c: [number, number] = [0.5, -0.866];
+  const steps = [a, b, c, [-a[0], -a[1]], [-b[0], -b[1]]];
+  const pts: [number, number][] = [[0, 0]];
+  for (const [dx, dy] of steps) {
+    const [x, y] = pts[pts.length - 1];
+    pts.push([x + dx, y + dy]);
+  }
+  const cx = pts.reduce((t, p) => t + p[0], 0) / 6, cy = pts.reduce((t, p) => t + p[1], 0) / 6;
+  return pts.map(([x, y]) => [x - cx, y - cy]);
+})();
+
+/** いす形シクロヘキサン (テンプレート) */
 export function addChair(doc: Doc, x: number, y: number): Doc {
-  // 3D のいす形を斜め上から見た投影 (結合長がほぼ ACS の長さになる倍率)
-  const pts: [number, number][] = [[-1, 0.34], [-0.5, -0.5], [0.5, 0.19], [1, -0.34], [0.5, 0.5], [-0.5, -0.19]];
-  const k = L * 1.05;
-  const atoms = pts.map(([px, py]) => newAtom(x + px * k, y + py * k));
+  const atoms = CHAIR_POINTS.map(([px, py]) => newAtom(x + px * L, y + py * L));
   const bonds = atoms.map((a, i) => newBond(a.id, atoms[(i + 1) % 6].id));
   return withBonds(withAtoms(doc, atoms), bonds);
 }

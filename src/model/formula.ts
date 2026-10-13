@@ -22,6 +22,7 @@ export function formulaOf(doc: Doc, atomIds: Iterable<Id>): FormulaResult {
     const a = doc.atoms[id];
     if (!a) continue;
     charge += a.charge;
+    if (a.label === '*') continue; // 高分子の末端
     if (a.label) {
       const f = labelFormula(a.label);
       if (!f) {

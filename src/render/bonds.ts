@@ -4,6 +4,9 @@ import { ACS } from '../model/style';
 import { degree, neighbors, smallestRingOfBond } from '../model/graph';
 import { clipFraction, type AtomLayout, type Box } from './labels';
 
+/** Newman 投影式の円の半径 */
+export const NEWMAN_R = ACS.bondLength * 0.62;
+
 export type BondShape =
   | { kind: 'line'; x1: number; y1: number; x2: number; y2: number; w: number }
   | { kind: 'poly'; points: [number, number][] }
@@ -124,7 +127,11 @@ export function bondShapes(doc: Doc, bond: Bond, layouts: Record<Id, AtomLayout>
   if (L < 1e-6) return [];
   const u = mul(d, 1 / L);
   const n = { x: -u.y, y: u.x };
-  const [P, Q] = clippedSegment(A, B, { x: 0, y: 0 }, la, lb);
+  let [P, Q] = clippedSegment(A, B, { x: 0, y: 0 }, la, lb);
+  // Newman 投影式: 奥の炭素の結合は円周から描く
+  if (A.newman === 'back') P = add(A, mul(u, NEWMAN_R));
+  if (B.newman === 'back') Q = sub(B, mul(u, NEWMAN_R));
+  if ((A.newman === 'back' || B.newman === 'back') && len(sub(Q, P)) < 0.5) return [];
   const line = (p: Pt, q: Pt, w = lw): BondShape => ({ kind: 'line', x1: p.x, y1: p.y, x2: q.x, y2: q.y, w });
 
   if (bond.order === 1) {

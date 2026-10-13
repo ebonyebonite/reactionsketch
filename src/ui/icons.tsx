@@ -72,5 +72,9 @@ export const Icons = {
   flipV: S(<path d="M3 12h18M7 9l5-5 5 5zM7 15l5 5 5-5z" />),
   rotate: S(<path d="M20 12a8 8 0 11-2.3-5.7M20 4v5h-5" />),
   examples: S(<path d="M4 5h7v14H4zM13 5h7v6h-7zM13 13h7v6h-7z" />),
+  chairIcon: S(<path d="M2 13.5l5-5 6 2.5 7-4M2 13.5l7 4 6-2.5 5-5" />),
+  next: S([<path key="a" d="M4 16C4 8 11 5 15 8" />, <path key="b" d="M12 6.5l3.6 1.7-1.4 3.7" />, <path key="c" d="M14 17h7M18 14l3 3-3 3" />]),
+  polymer: S([<path key="a" d="M7 5H5v14h2M17 5h2v14h-2" />, <path key="b" d="M2 12h3l3-3 4 6 4-6 3 3h3" />, <text key="c" x="20" y="23" fontSize="6" fontStyle="italic" fill="currentColor" stroke="none">n</text>]),
+  table: S([<rect key="a" x="3" y="5" width="18" height="14" rx="2" />, <path key="b" d="M3 10h18M3 14.5h18M9 5v14" />]),
   fit: S(<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />),
 };

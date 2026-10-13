@@ -88,6 +88,7 @@ export function attachedTextPos(doc: Doc, t: TextBox, layouts: Record<Id, AtomLa
   if (!t.attachAtom || !doc.atoms[t.attachAtom]) return null;
   const comp = componentOf(doc, t.attachAtom);
   const b = componentBox(doc, comp, layouts);
+  if (t.attachPos === 'left') return { x: b.x1 - 3 + t.x, y: (b.y1 + b.y2) / 2 + (CAP_HEIGHT * t.size) / 2 + t.y };
   return { x: (b.x1 + b.x2) / 2 + t.x, y: b.y2 + 6 + CAP_HEIGHT * t.size + t.y };
 }
 
@@ -100,7 +101,7 @@ export function bracketPath(b: Bracket): { paths: string[]; label?: { x: number;
         `M${f(b.x + t)} ${f(b.y)} L${f(b.x)} ${f(b.y)} L${f(b.x)} ${f(b.y + b.h)} L${f(b.x + t)} ${f(b.y + b.h)}`,
         `M${f(b.x + b.w - t)} ${f(b.y)} L${f(b.x + b.w)} ${f(b.y)} L${f(b.x + b.w)} ${f(b.y + b.h)} L${f(b.x + b.w - t)} ${f(b.y + b.h)}`,
       ],
-      label: b.label ? { x: b.x + b.w + 1.5, y: b.y + 7 } : undefined,
+      label: b.label ? (b.labelPos === 'bottom' ? { x: b.x + b.w + 1.2, y: b.y + b.h + 3.2 } : { x: b.x + b.w + 1.5, y: b.y + 7 }) : undefined,
     };
   }
   const bow = Math.min(5, b.h * 0.12);
@@ -109,7 +110,7 @@ export function bracketPath(b: Bracket): { paths: string[]; label?: { x: number;
       `M${f(b.x + bow)} ${f(b.y)} Q${f(b.x - bow)} ${f(b.y + b.h / 2)} ${f(b.x + bow)} ${f(b.y + b.h)}`,
       `M${f(b.x + b.w - bow)} ${f(b.y)} Q${f(b.x + b.w + bow)} ${f(b.y + b.h / 2)} ${f(b.x + b.w - bow)} ${f(b.y + b.h)}`,
     ],
-    label: b.label ? { x: b.x + b.w + 2, y: b.y + 7 } : undefined,
+    label: b.label ? (b.labelPos === 'bottom' ? { x: b.x + b.w + 2, y: b.y + b.h + 3.2 } : { x: b.x + b.w + 2, y: b.y + 7 }) : undefined,
   };
 }
 
@@ -164,13 +165,13 @@ export function buildScene(doc: Doc): Scene {
       }
       case 'text': {
         const pos = attachedTextPos(doc, o, layouts) ?? { x: o.x, y: o.y };
-        const g = layoutText(o.text, pos.x, pos.y, o.size, o.attachAtom ? 'center' : o.align, o.bold);
+        const g = layoutText(o.text, pos.x, pos.y, o.size, o.attachAtom ? (o.attachPos === 'left' ? 'right' : 'center') : o.align, o.bold);
         texts[id] = g;
         bbox = grow(bbox, g.bbox);
         break;
       }
       case 'bracket': {
-        bbox = grow(bbox, { x1: o.x - 5, y1: o.y, x2: o.x + o.w + (o.label ? 12 : 5), y2: o.y + o.h });
+        bbox = grow(bbox, { x1: o.x - 5, y1: o.y, x2: o.x + o.w + (o.label ? 12 : 5), y2: o.y + o.h + (o.label && o.labelPos === 'bottom' ? 6 : 0) });
         break;
       }
       case 'plus':

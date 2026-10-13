@@ -97,7 +97,7 @@ export async function expandLabels(doc: Doc, atomIds: Iterable<Id>): Promise<{ d
   const unknown: string[] = [];
   for (const id of [...atomIds]) {
     const atom = next.atoms[id];
-    if (!atom?.label) continue;
+    if (!atom?.label || atom.label === '*') continue;
     const key = lookupAbbreviation(atom.label);
     if (!key) {
       unknown.push(atom.label);
@@ -108,7 +108,7 @@ export async function expandLabels(doc: Doc, atomIds: Iterable<Id>): Promise<{ d
       return parseMolblock(m.get_molblock(JSON.stringify({ kekulize: true })));
     });
     const fatoms = frag.atomOrder.map((aid) => frag.doc.atoms[aid]);
-    const dummy = fatoms.find((a) => a.label === 'R');
+    const dummy = fatoms.find((a) => a.label === '*');
     if (!dummy) continue;
     const dummyBond = Object.values(frag.doc.bonds).find((b) => b.a1 === dummy.id || b.a2 === dummy.id)!;
     const attachId = dummyBond.a1 === dummy.id ? dummyBond.a2 : dummyBond.a1;
@@ -151,7 +151,11 @@ export async function smilesOf(doc: Doc, atomIds: Id[]): Promise<string> {
   const all = new Set<Id>();
   for (const id of atomIds) if (expanded.atoms[id]) componentOf(expanded, id).forEach((x) => all.add(x));
   const { molblock } = toMolblock(expanded, [...all]);
-  return withMol(rd, molblock, null, (m) => m.get_smiles());
+  return withMol(rd, molblock, null, (m) => {
+    // 明示的に描いた H は SMILES では省く
+    m.remove_hs_in_place();
+    return m.get_smiles();
+  });
 }
 
 export async function inchiOf(doc: Doc, atomIds: Id[]): Promise<string> {

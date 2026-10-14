@@ -1,6 +1,7 @@
 // オフラインでも使える化合物辞書 (日本語名・英語名・略号 → SMILES)
 // 有機化学の実験・レポートでよく出てくる化合物・試薬・溶媒を収録。
 import { POLYMERS } from './polymers';
+import { fold, rankFuzzy } from './fuzzy';
 
 export interface DictEntry {
   names: string[];
@@ -195,27 +196,50 @@ const INDEX = new Map<string, DictEntry>();
 // 同じ名前が両方にあれば低分子の辞書を優先する
 for (const e of ALL_ENTRIES) for (const n of e.names) INDEX.set(normalize(n), e);
 
+// ひらがな・長音などの表記ゆれでも引けるように
+const FOLDED = new Map<string, DictEntry>();
+for (const e of ALL_ENTRIES) for (const n of e.names) if (!FOLDED.has(fold(n))) FOLDED.set(fold(n), e);
+for (const e of DICTIONARY) for (const n of e.names) FOLDED.set(fold(n), e);
+
 export function lookupDictionary(name: string): DictEntry | undefined {
-  return INDEX.get(normalize(name));
+  return INDEX.get(normalize(name)) ?? FOLDED.get(fold(name));
 }
 
-/** 入力途中の候補 (前方一致) */
+/** 入力途中の候補 (前方一致 → 部分一致 → 似た名前の順) */
 export function suggestDictionary(prefix: string, limit = 8): { name: string; entry: DictEntry }[] {
   const p = normalize(prefix);
   if (!p) return [];
   const out: { name: string; entry: DictEntry }[] = [];
   const seen = new Set<DictEntry>();
-  for (const e of [...DICTIONARY, ...POLYMERS]) {
-    for (const n of e.names) {
-      if (normalize(n).startsWith(p) && !seen.has(e)) {
+  const entries = [...DICTIONARY, ...POLYMERS];
+  const pass = (test: (n: string) => boolean) => {
+    for (const e of entries) {
+      if (out.length >= limit) return;
+      if (seen.has(e)) continue;
+      const n = e.names.find((x) => test(normalize(x)));
+      if (n) {
         out.push({ name: n, entry: e });
         seen.add(e);
-        break;
       }
     }
-    if (out.length >= limit) break;
+  };
+  pass((n) => n.startsWith(p));
+  if (p.length >= 2) pass((n) => n.includes(p));
+  if (out.length < limit && p.length >= 2) {
+    for (const h of fuzzyDictionary(prefix, limit, 0.5)) {
+      if (out.length >= limit) break;
+      if (!seen.has(h.entry)) {
+        out.push(h);
+        seen.add(h.entry);
+      }
+    }
   }
   return out;
+}
+
+/** 名前が近い化合物 (打ち間違い・ひらがな/カタカナ・長音・別名の一部)。score は 0〜1 */
+export function fuzzyDictionary(name: string, limit = 5, threshold = 0.5): { name: string; entry: DictEntry; score: number }[] {
+  return rankFuzzy(name, [...DICTIONARY, ...POLYMERS], (e) => e.names, threshold, limit).map((h) => ({ name: h.name, entry: h.item, score: h.score }));
 }
 
 /** 液体の密度 (g/mL, 20–25 °C)。試薬表で体積を計算するのに使う */

@@ -3,7 +3,8 @@
 //   2. SMILES / InChI / Molfile として解釈 (オフライン, RDKit)
 //   3. 日本語名 → Wikidata
 //   4. IUPAC 名 → OPSIN (EBI)、慣用名・CAS 番号 → PubChem
-import { lookupDictionary } from './dictionary';
+//   5. 見つからなければ近い名前: 内蔵辞書のあいまい検索 → Wikidata の名前・別名の検索 → PubChem の入力候補
+import { fuzzyDictionary, lookupDictionary } from './dictionary';
 import { monomerNameOf } from './polymers';
 import { isValidSmiles } from './rdkit';
 
@@ -117,7 +118,12 @@ export async function searchStructure(query: string, canPolymerize?: (smiles: st
   return searchPlain(q);
 }
 
-async function searchPlain(q: string): Promise<NameResult> {
+/** 近い名前に置き換えない検索 (試薬・反応式の物質を自動で引くとき。違う物質を勝手に使わないように) */
+export function searchStructureExact(query: string): Promise<NameResult> {
+  return searchPlain(query.trim(), false);
+}
+
+async function searchPlain(q: string, fuzzy = true): Promise<NameResult> {
   if (!q) throw new Error('名前・SMILES を入力してください');
   const dict = lookupDictionary(q);
   if (dict) return { structure: dict.smiles, source: '内蔵辞書', title: dict.names[0] };
@@ -126,14 +132,26 @@ async function searchPlain(q: string): Promise<NameResult> {
     return { structure: q, source: 'SMILES' };
   }
   const online = typeof navigator === 'undefined' || navigator.onLine !== false;
-  if (!online) throw new Error('オフラインのため、内蔵辞書にない名前は検索できません (SMILES は使えます)');
+  if (!online) {
+    const near = fuzzy ? nearInDictionary(q, 0.6) : null;
+    if (near) return near;
+    throw new Error(`オフラインのため、内蔵辞書にない名前は検索できません (SMILES は使えます)${maybeText(q)}`);
+  }
+  const exact = await searchExactOnline(q);
+  if (exact) return exact;
+  if (!fuzzy) throw new Error(`「${q}」が見つかりませんでした`);
+  // 近い名前で探す (打ち間違い・表記ゆれ・別名)
+  const near = nearInDictionary(q, 0.72) ?? (await wikidataSearch(q)) ?? (hasJapanese(q) ? null : await pubchemAutocomplete(q)) ?? nearInDictionary(q, 0.55);
+  if (near) return near;
+  throw new Error(`「${q}」が見つかりませんでした。${hasJapanese(q) ? '英語名・IUPAC 名・SMILES でも検索できます' : ''}${maybeText(q)}`);
+}
+
+async function searchExactOnline(q: string): Promise<NameResult | null> {
   if (hasJapanese(q)) {
     const w = await wikidataByJapaneseName(q);
     if (w) return w;
     // 「〜酸エチル」などの表記ゆれのため、全角スペース等を除いて再試行
-    const w2 = await wikidataByJapaneseName(q.replace(/[\s・]/g, ''));
-    if (w2) return w2;
-    throw new Error(`「${q}」が見つかりませんでした。英語名・IUPAC 名・SMILES でも検索できます`);
+    return wikidataByJapaneseName(q.replace(/[\s・]/g, ''));
   }
   if (looksLikeCas(q)) {
     const p = await pubchemByName(q);
@@ -141,6 +159,55 @@ async function searchPlain(q: string): Promise<NameResult> {
   }
   const [o, p] = await Promise.all([opsinByName(q), pubchemByName(q)]);
   if (o) return { ...o, title: p?.title };
-  if (p) return p;
-  throw new Error(`「${q}」が見つかりませんでした`);
+  return p;
+}
+
+function nearInDictionary(q: string, threshold: number): NameResult | null {
+  const h = fuzzyDictionary(q, 1, threshold)[0];
+  return h ? { structure: h.entry.smiles, source: `内蔵辞書 (近い名前「${h.name}」)`, title: h.entry.names[0] } : null;
+}
+
+function maybeText(q: string): string {
+  const c = fuzzyDictionary(q, 4, 0.35).map((h) => h.name);
+  return c.length ? `。もしかして: ${c.join('、')}` : '';
+}
+
+/** Wikidata の名前・別名の検索 (前方一致・表記ゆれに強い) で、構造のある項目を探す */
+export async function wikidataSearch(q: string): Promise<NameResult | null> {
+  const lang = hasJapanese(q) ? 'ja' : 'en';
+  try {
+    const s = (await fetchJson(
+      `https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json&origin=*&type=item&limit=7&language=${lang}&uselang=${lang}&search=${encodeURIComponent(q)}`,
+    )) as { search?: { id: string; label?: string; match?: { text?: string } }[] };
+    const ids = (s.search ?? []).map((x) => x.id);
+    if (!ids.length) return null;
+    const e = (await fetchJson(
+      `https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&origin=*&props=claims|labels&languages=${lang}|en&ids=${ids.join('|')}`,
+    )) as { entities?: Record<string, { labels?: Record<string, { value: string }>; claims?: Record<string, { mainsnak?: { datavalue?: { value?: unknown } } }[]> }> };
+    for (const id of ids) {
+      const ent = e.entities?.[id];
+      const val = (p: string) => ent?.claims?.[p]?.[0]?.mainsnak?.datavalue?.value;
+      const smi = (val('P2017') ?? val('P233')) as string | undefined;
+      if (typeof smi !== 'string' || !smi) continue;
+      const label = ent?.labels?.[lang]?.value ?? ent?.labels?.en?.value ?? id;
+      return { structure: smi, source: `Wikidata (近い名前「${label}」)`, title: label };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** PubChem の入力候補 (打ち間違いに強い) の先頭の化合物 */
+export async function pubchemAutocomplete(q: string): Promise<NameResult | null> {
+  try {
+    const j = (await fetchJson(`https://pubchem.ncbi.nlm.nih.gov/rest/autocomplete/compound/${encodeURIComponent(q)}/json?limit=5`)) as { dictionary_terms?: { compound?: string[] } };
+    for (const name of j.dictionary_terms?.compound ?? []) {
+      const p = await pubchemByName(name);
+      if (p) return { ...p, source: `PubChem (近い名前「${name}」)`, title: p.title ?? name };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

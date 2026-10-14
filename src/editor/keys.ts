@@ -2,9 +2,9 @@
 import { addTab, activeTab, getState, redo, setState, setTool, setView, toast, undo } from './store';
 import {
   applyArrowsToNext, autoLayoutScheme, cleanStructure, copySelection, cutSelection, deleteHovered, deleteSelected, hoverHotkey, nudgeSelection,
-  pasteFromClipboard, placeFragment, selectAll,
+  pasteFromClipboard, placeFragment, selectAll, typeCoefficientDigit,
 } from './actions';
-import { selectionSize, emptySelection } from '../model/edit';
+import { selectionSize, emptySelection, selectedAtomIds } from '../model/edit';
 import { TOOL_KEYS } from '../ui/Toolbar';
 import { exportCurrent } from '../ui/TopBar';
 import { buildScene } from '../render/scene';
@@ -125,6 +125,19 @@ export function installKeys(): () => void {
       return;
     }
     if (e.altKey) return;
+
+    // 分子を選んで数字キー: 反応式の係数 (カーソルが選んだ分子の上にあっても、結合の次数より優先)
+    if (/^[0-9]$/.test(e.key) && selectionSize(s.selection)) {
+      const h = s.hover;
+      const d = activeTab().doc;
+      const onSelected = !h || h.kind === 'object' || h.kind === 'handle'
+        || (h.kind === 'atom' && selectedAtomIds(d, s.selection).has(h.id))
+        || (h.kind === 'bond' && (s.selection.bonds.has(h.id) || [d.bonds[h.id]?.a1, d.bonds[h.id]?.a2].every((a) => a && s.selection.atoms.has(a))));
+      if (onSelected && typeCoefficientDigit(e.key)) {
+        e.preventDefault();
+        return;
+      }
+    }
 
     // カーソル下の原子・結合への操作が最優先
     if (s.hover && (s.hover.kind === 'atom' || s.hover.kind === 'bond')) {

@@ -4,7 +4,7 @@
 //   2. 記事の本文の化学反応式 (2NaCl + CaCO3 → Na2CO3 + CaCl2 など。<chem>・\ce{}・数式にも対応) を読み、
 //      化学式・名前を構造にする。「全体」「overall」などと書かれた式や、元素の数がつり合う式を優先
 //   3. 冒頭の説明から「A と B から C と D を製造する」のような文を読む
-import { searchStructure } from './names';
+import { searchStructureExact as searchStructure } from './names';
 import { elementCounts, looksLikeFormula, smilesFromFormula, splitCoefficient } from './formulas';
 
 export interface OnlineReaction {

@@ -1,9 +1,9 @@
 // 上部バー: 構造の検索・ファイル・書き出し・編集操作
 import { useEffect, useRef, useState } from 'react';
 import { activeTab, addTab, getState, redo, setState, toast, toProject, undo, useStore } from '../editor/store';
-import { addReactionFromQuery, addStructureFromQuery, alignReactionAtoms, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment, proposeMechanismForScheme } from '../editor/actions';
+import { addReactionFromQuery, addStructureFromQuery, alignReactionAtoms, balanceReactionCoefficients, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment, proposeMechanismForScheme } from '../editor/actions';
 import { suggestDictionary } from '../chem/dictionary';
-import { reactionQuery, searchReactions } from '../chem/reactions';
+import { fuzzyReactions, reactionQuery, reactionsWithReagent, searchReactions } from '../chem/reactions';
 import { copyPng, exportTarget, isEmpty, projectBlob, renderPdf, renderPng, safeFilename, saveBlob, svgString, cdxmlString, copyText } from '../io/export';
 import { openFiles } from '../io/open';
 import { molfileOf, smilesOf } from '../chem/rdkit';
@@ -104,7 +104,17 @@ export function SearchBox() {
 /** 「r 反応名」の候補。内蔵辞書に完全一致がなければ、ネットで探す候補も出す */
 function reactionSuggestions(rq: string): { name: string; alt: string; submit: string }[] {
   const hits = searchReactions(rq, 8);
-  const out = hits.map((s) => ({ name: s.name, alt: s.reaction.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: `r ${s.reaction.names[0]}` }));
+  // 部分一致が少なければ、似た名前 (打ち間違い・表記ゆれ) と、その試薬を使う反応も候補に
+  const seen = new Set(hits.map((h) => h.reaction));
+  const extra = rq.trim().length >= 2 && hits.length < 6
+    ? [...fuzzyReactions(rq, 6, 0.5).map((h) => ({ name: h.name, reaction: h.reaction, why: '近い名前' })), ...reactionsWithReagent(rq, 4).map((r) => ({ name: r.names[0], reaction: r, why: `試薬に ${rq.trim()}` }))]
+      .filter((h) => !seen.has(h.reaction) && !!seen.add(h.reaction))
+      .slice(0, 8 - hits.length)
+    : [];
+  const out = [
+    ...hits.map((s) => ({ name: s.name, alt: s.reaction.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: `r ${s.reaction.names[0]}` })),
+    ...extra.map((h) => ({ name: h.name, alt: h.why, submit: `r ${h.reaction.names[0]}` })),
+  ];
   if (rq.trim().length >= 2 && !hits.some((h) => h.score === 3)) out.push({ name: `「${rq.trim()}」をネットで探す`, alt: 'Wikidata・Wikipedia', submit: `r online:${rq.trim()}` });
   return out;
 }
@@ -263,6 +273,7 @@ export function TopBar() {
           <MenuItem onClick={applyArrowsToNext} kbd="Ctrl+Enter">次の構造を作る</MenuItem>
           <MenuItem onClick={proposeMechanismForScheme}>反応機構を提案</MenuItem>
           <MenuItem onClick={alignReactionAtoms}>反応前後の原子の位置をそろえる</MenuItem>
+          <MenuItem onClick={balanceReactionCoefficients}>反応式の係数を合わせる</MenuItem>
           <MenuItem onClick={() => setState({ reagentsOpen: true })}>試薬表・収率計算</MenuItem>
           <hr />
           <MenuItem onClick={() => setState({ helpOpen: true })}>使い方</MenuItem>

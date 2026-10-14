@@ -74,6 +74,8 @@ export function parseMolblock(text: string): { doc: Doc; atomOrder: Id[] } {
     const chg = ccc === 0 ? 0 : 4 - ccc;
     raw.push({ x, y, sym, chg });
   }
+  // RDKit は水素だけの分子 (H2) の座標を nan にする: 横一列に並べる
+  if (raw.some((r) => !isFinite(r.x) || !isFinite(r.y))) raw.forEach((r, i) => ((r.x = i - (raw.length - 1) / 2), (r.y = 0)));
   const rawBonds: { a: number; b: number; order: number; stereo: number }[] = [];
   for (let i = 0; i < nBonds; i++) {
     const l = lines[ci + 1 + nAtoms + i];

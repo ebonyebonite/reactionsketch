@@ -11,9 +11,11 @@ import { components, componentOf } from '../model/graph';
 import { activeTab, commit, getState, setState, setView, toast } from './store';
 import { buildScene, componentBox } from '../render/scene';
 import { cleanComponents, expandLabels, structureFromText } from '../chem/rdkit';
-import { searchStructure } from '../chem/names';
-import { searchReactions } from '../chem/reactions';
+import { searchStructure, searchStructureExact } from '../chem/names';
+import { fuzzyReactions, reactionsWithCompound, reactionsWithReagent, searchReactions, type NamedReaction } from '../chem/reactions';
+import { lookupDictionary } from '../chem/dictionary';
 import { buildReactionDoc } from '../reactionScheme';
+import { balanceScheme, equationText, schemeSpecies, setCoefficient } from '../model/coefficient';
 import { applyArrows, separateFragments } from '../model/mechanism';
 import { parseSalt, withCounterIon, type CounterIon } from '../model/salt';
 import { asRepeatUnit, layoutRepeatUnit, monomerToRepeatUnit, polymerizableBond, repeatUnitBracket } from '../model/polymer';
@@ -225,6 +227,8 @@ export async function addReactionFromQuery(query: string, at?: { x: number; y: n
   try {
     let frag: Doc;
     let msg: string;
+    // 係数が式に書いてあれば (ネットの反応式・「2 H2 + O2 -> 2 H2O」) 自動では合わせない
+    let coefsGiven = false;
     const arrow = /\s*(?:->|→|⟶|=>|⇒)\s*/;
     if (/>/.test(q) && !arrow.test(q) && !/\s/.test(q)) {
       // 反応 SMILES: 原料>試薬>生成物 (試薬は省略可: 原料>>生成物)
@@ -237,12 +241,13 @@ export async function addReactionFromQuery(query: string, at?: { x: number; y: n
       // 化合物名で書いた式。各化合物は名前検索 (内蔵辞書 → PubChem など) で引く
       const [eq, above = '', below = ''] = q.split(/\s*[;；]\s*/);
       const [l, r = ''] = eq.split(arrow);
-      const side = (t: string) => t.split(/\s+\+\s+|\s*＋\s*/).map((x) => x.trim()).filter(Boolean);
+      const side = (t: string) => t.split(/\s+\+\s+|\s*＋\s*/).map((x) => x.trim()).filter(Boolean).map(splitNameCoef);
       const [L, R] = [side(l), side(r)];
       if (!L.length || !R.length) throw new Error('「原料 + 原料 -> 生成物」の形で入力してください');
-      const found = await Promise.all([...L, ...R].map((n) => searchStructure(n).catch((e: Error) => { throw new Error(`「${n}」: ${e.message}`); })));
+      coefsGiven = [...L, ...R].some((x) => x.coef !== 1);
+      const found = await Promise.all([...L, ...R].map(({ name: n }) => searchStructure(n).catch((e: Error) => { throw new Error(`「${n}」: ${e.message}`); })));
       const smi = found.map((f) => f.structure);
-      frag = await buildReactionDoc(smi.slice(0, L.length), smi.slice(L.length), above, below);
+      frag = await buildReactionDoc(smi.slice(0, L.length), smi.slice(L.length), above, below, { reactants: L.map((x) => x.coef), products: R.map((x) => x.coef) });
       const srcs = [...new Set(found.map((f) => f.source))].join('・');
       msg = `${srcs} から反応式を作りました`;
     } else {
@@ -260,19 +265,30 @@ export async function addReactionFromQuery(query: string, at?: { x: number; y: n
         const on = await searchReactionOnline(name).catch(() => null);
         if (on) {
           frag = await buildReactionDoc(on.reactants, on.products, on.above, '', { reactants: on.reactantCoefs, products: on.productCoefs });
+          coefsGiven = [...(on.reactantCoefs ?? []), ...(on.productCoefs ?? [])].some((c) => c !== 1);
           msg = on.equation
             ? `${on.title}: ${on.source}「${on.equation}」から作りました`
             : on.names
               ? `${on.title}: ${on.source}から読み取った反応式です (${on.names.reactants.join('・')} → ${on.names.products.join('・')})。正しいか確認してください`
               : `${on.title} を ${on.source} から追加しました`;
-        } else if (hit) {
-          const r = hit.reaction;
-          frag = await buildReactionDoc(r.reactants, r.products, r.above, r.below);
-          msg = `ネットでは見つからなかったので、内蔵辞書の ${r.names[0]} を追加しました`;
         } else {
-          throw new Error(`反応「${name}」は内蔵辞書にもネット (Wikidata・Wikipedia) にも見つかりませんでした。「r 原料 + 原料 -> 生成物 ; 試薬」の形なら化合物名から作れます`);
+          // 見つからなければ、近い反応 (部分一致・似た名前・その試薬や化合物を使う反応) を探す
+          setState({ busy: `「${name.slice(0, 30)}」に近い反応を探しています…` });
+          const near = await nearReactions(name, hit?.reaction);
+          if (!near) {
+            const maybe = fuzzyReactions(name, 4, 0.3).map((h) => h.name);
+            throw new Error(`反応「${name}」は内蔵辞書にもネット (Wikidata・Wikipedia) にも見つかりませんでした。${maybe.length ? `もしかして: ${maybe.join('、')}。` : ''}「r 原料 + 原料 -> 生成物 ; 試薬」の形なら化合物名から作れます`);
+          }
+          const r = near.reaction;
+          frag = await buildReactionDoc(r.reactants, r.products, r.above, r.below);
+          msg = `「${name}」は見つからなかったので、${near.why} ${r.names[0]} を追加しました${near.others.length ? ` (ほかの候補: ${near.others.join('、')})` : ''}`;
         }
       }
+    }
+    if (!coefsGiven) {
+      const b = await autoBalance(frag);
+      frag = b.doc;
+      if (b.note) msg += `。${b.note}`;
     }
     placeFragment(frag, at);
     toast(msg);
@@ -775,4 +791,111 @@ export async function proposeMechanismForScheme(): Promise<void> {
   } finally {
     setState({ busy: null });
   }
+}
+
+// ---- 反応式の係数 ----
+
+/** 選択した原子・結合を含む分子。矢印・＋などの図形も選ばれていれば空 (数字キーをツールの切り替えに残すため) */
+export function selectedMolecules(d: Doc = doc(), sel: Selection = getState().selection): Id[][] {
+  for (const id of sel.objects) {
+    const o = d.objects[id];
+    if (o && !(o.type === 'text' && o.attachAtom)) return [];
+  }
+  const ids = selectedAtomIds(d, sel);
+  if (!ids.size) return [];
+  return components(d).filter((c) => c.some((id) => ids.has(id)));
+}
+
+/** 選択した分子の係数を書く (1 や空なら消す) */
+export function setSelectedCoefficient(value: string): boolean {
+  const v = value.normalize('NFKC').trim();
+  if (v && !/^\d+(?:\/\d+)?$/.test(v)) {
+    toast('係数は数字で入力してください (例: 2, 1/2)', 'error');
+    return false;
+  }
+  const d0 = doc();
+  const comps = selectedMolecules(d0);
+  if (!comps.length) {
+    toast('係数を付ける分子をクリックして選んでください', 'error');
+    return false;
+  }
+  let next = d0;
+  // 右の分子から書くと、左の分子の係数で動いた位置に影響されない
+  const scene = buildScene(d0);
+  const order = [...comps].sort((a, b) => componentBox(d0, b, scene.layouts).x1 - componentBox(d0, a, scene.layouts).x1);
+  for (const c of order) next = setCoefficient(next, c, v);
+  if (next !== d0) commit(next);
+  return true;
+}
+
+let coefTyping: { text: string; at: number; key: string } | null = null;
+
+/** 分子を選んで数字キー: 係数を入力 (続けて押すと 2 桁)。処理したら true */
+export function typeCoefficientDigit(digit: string): boolean {
+  const d = doc();
+  const comps = selectedMolecules(d);
+  if (!comps.length) return false;
+  const key = comps.map((c) => c[0]).join(',');
+  const now = Date.now();
+  const text = coefTyping && coefTyping.key === key && now - coefTyping.at < 1200 && coefTyping.text.length < 3 ? coefTyping.text + digit : digit;
+  coefTyping = { text, at: now, key };
+  setSelectedCoefficient(String(parseInt(text, 10) || 1));
+  return true;
+}
+
+/** 反応式の係数を自動で合わせる (原子の数と電荷の保存) */
+export async function balanceReactionCoefficients(): Promise<void> {
+  const d = doc();
+  const { findScheme } = await import('../chem/propose');
+  const sc = findScheme(d, selectedReactionArrowId(d));
+  if (!sc || !sc.left.length || !sc.right.length) {
+    toast('反応矢印の左右に原料と生成物を描いてください', 'error');
+    return;
+  }
+  const r = balanceScheme(d, sc);
+  if ('error' in r) {
+    toast(r.error, 'error');
+    return;
+  }
+  if (r.changed) commit(r.doc);
+  toast(`係数を合わせました: ${equationText(r.doc, schemeSpecies(r.doc, sc), r)}`);
+}
+
+/** 式の中の「2 H2」「2H2O」「1/2 O2」を係数と名前に分ける (「2-ブタノール」はそのまま) */
+function splitNameCoef(t: string): { coef: number; name: string } {
+  const m = t.match(/^(\d+(?:\/\d+)?)\s+(.+)$/) ?? t.match(/^(\d+)([A-Z][A-Za-z0-9()]*)$/);
+  if (!m) return { coef: 1, name: t };
+  const [a, b] = m[1].split('/').map(Number);
+  return { coef: b ? a / b : a, name: m[2] };
+}
+
+/** 反応名が見つからないとき、近い反応を探す: 名前の部分一致 → 似た名前 → その試薬を使う反応 → その化合物が出てくる反応 */
+async function nearReactions(name: string, partial?: NamedReaction): Promise<{ reaction: NamedReaction; why: string; others: string[] } | null> {
+  const pick = (list: NamedReaction[], why: string) => {
+    const uniq = [...new Set(list)];
+    return uniq.length ? { reaction: uniq[0], why, others: uniq.slice(1, 4).map((r) => r.names[0]) } : null;
+  };
+  const fuzzy = fuzzyReactions(name, 5, 0.5);
+  if (partial) return pick([partial, ...fuzzy.map((h) => h.reaction)], `名前に「${name}」を含む`);
+  if (fuzzy.length) return pick(fuzzy.map((h) => h.reaction), '名前が近い');
+  const byReagent = reactionsWithReagent(name);
+  if (byReagent.length) return pick(byReagent, `「${name}」を試薬に使う`);
+  // 化合物名なら、その化合物が原料・生成物にある反応
+  const dict = lookupDictionary(name);
+  const smi = dict?.smiles ?? (await searchStructureExact(name).then((r) => r.structure).catch(() => null));
+  if (smi && !/^InChI=|M {2}END/.test(smi)) {
+    const hits = await reactionsWithCompound(smi).catch(() => []);
+    if (hits.length) return pick(hits.map((h) => h.reaction), `「${name}」が${hits[0].side === 'reactant' ? '原料' : '生成物'}の`);
+  }
+  return null;
+}
+
+/** 置く前の反応式の係数を合わせる。合わせられなければそのまま (有機反応は副生成物を省くことが多い) */
+async function autoBalance(frag: Doc): Promise<{ doc: Doc; note: string }> {
+  const { findScheme } = await import('../chem/propose');
+  const sc = findScheme(frag);
+  if (!sc) return { doc: frag, note: '' };
+  const r = balanceScheme(frag, sc);
+  if ('error' in r || !r.changed) return { doc: frag, note: '' };
+  return { doc: layoutSchemeDoc(r.doc) ?? r.doc, note: `係数: ${equationText(r.doc, schemeSpecies(r.doc, sc), r)}` };
 }

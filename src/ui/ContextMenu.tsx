@@ -4,7 +4,7 @@ import type { Atom, Bond, CurvedArrow, ReactionArrowKind } from '../model/types'
 import { expandToMolecules, updateAtom, updateBond, withObject } from '../model/edit';
 import { activeTab, commit, getState, setState, useStore } from '../editor/store';
 import {
-  addCompoundNumber, addRepeatBracket, alignReactionAtoms, applyArrowsToNext, proposeMechanismForScheme, autoLayoutScheme, cleanStructure, copySelection, deleteSelected,
+  addCompoundNumber, addRepeatBracket, alignReactionAtoms, balanceReactionCoefficients, setSelectedCoefficient, applyArrowsToNext, proposeMechanismForScheme, autoLayoutScheme, cleanStructure, copySelection, deleteSelected,
   flipSelection, pasteFromClipboard, polymerizeSelected, selectAll,
 } from '../editor/actions';
 import { exportCurrent } from './TopBar';
@@ -116,18 +116,31 @@ export function ContextMenu() {
           }}>反応条件を入力</Item>
           <Item onClick={proposeMechanismForScheme}>反応機構を提案</Item>
           <Item onClick={alignReactionAtoms}>生成物の原子の位置を原料にそろえる</Item>
+          <Item onClick={balanceReactionCoefficients}>係数を自動で合わせる</Item>
         </div>,
       );
     }
   }
   if (t && (t.kind === 'atom' || t.kind === 'bond')) {
     const atomId = t.kind === 'atom' ? t.id : d.bonds[t.id]?.a1;
+    // 右クリックした分子 (選択中の分子の上なら、選択中の分子すべて) に係数を書く
+    const coefFor = (v: string) => {
+      const s = getState().selection;
+      const onSel = t.kind === 'atom' ? s.atoms.has(t.id) : s.bonds.has(t.id);
+      if (!onSel) setState({ selection: expandToMolecules(d, { atoms: new Set(t.kind === 'atom' ? [t.id] : []), bonds: new Set(t.kind === 'bond' ? [t.id] : []), objects: new Set() }) });
+      setSelectedCoefficient(v);
+    };
     sections.push(
       <div key="mol">
         <div className="ctx-title">分子</div>
         <Item onClick={() => setState({ selection: expandToMolecules(d, getState().selection) })}>分子全体を選択</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); cleanStructure(); }} kbd="Ctrl+Shift+K">構造を整える</Item>
         <Item onClick={() => atomId && addCompoundNumber(atomId)}>化合物番号を付ける</Item>
+        <div className="ctx-sub">係数 (分子の前の数字)</div>
+        <Chips items={[...['1', '2', '3', '4', '5', '6'].map((n) => [n, () => coefFor(n)] as [string, () => void]), ['…', () => {
+          const v = window.prompt('係数 (例: 2, 1/2。空で消す)', '');
+          if (v !== null) coefFor(v);
+        }]]} />
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); flipSelection('h'); }}>左右反転</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); addRepeatBracket(); }}>繰り返し単位 [ ]n で囲む</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); polymerizeSelected(); }}>重合 (モノマー → ポリマー)</Item>

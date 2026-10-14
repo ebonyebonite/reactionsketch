@@ -759,7 +759,7 @@ async function reagentCandidates(d: Doc, scheme: Scheme, online: boolean): Promi
   for (const [i, name] of reagentTokens(`${scheme.arrow.above}\n${scheme.arrow.below}`).entries()) {
     let smi = lookupDictionary(name)?.smiles ?? (await smilesFromFormula(name, true));
     if (!smi && online) {
-      const { searchStructure } = await import('./names');
+      const { searchStructureExact: searchStructure } = await import('./names');
       smi = (await smilesFromFormula(name).catch(() => null)) ?? (await searchStructure(name).then((r) => r.structure).catch(() => null));
     }
     if (!smi) continue;

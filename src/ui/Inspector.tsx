@@ -6,8 +6,9 @@ import { components } from '../model/graph';
 import { exactMass, formulaOf, formulaText, hillOrder, hrmsSentence, molecularWeight, type Adduct } from '../model/formula';
 import { activeTab, commit, endTransient, setState, toast, updateTransient, useStore } from '../editor/store';
 import { COUNTER_IONS } from '../model/salt';
+import { coefficientOf } from '../model/coefficient';
 import {
-  addCompoundNumber, addRepeatBracket, alignReactionAtoms, alignSelection, applyArrowsToNext, proposeMechanismForScheme, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
+  addCompoundNumber, addRepeatBracket, alignReactionAtoms, balanceReactionCoefficients, setSelectedCoefficient, alignSelection, applyArrowsToNext, proposeMechanismForScheme, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
   addCounterIon,
 } from '../editor/actions';
 import { smilesOf } from '../chem/rdkit';
@@ -241,6 +242,7 @@ function ReactionPanel({ arrow }: { arrow: ReactionArrow }) {
       <div className="row">
         <button className="mini primary" onClick={proposeMechanismForScheme}>反応機構を提案</button>
         <button className="mini" onClick={alignReactionAtoms}>原子の位置をそろえる</button>
+        <button className="mini" onClick={balanceReactionCoefficients}>係数を合わせる</button>
       </div>
       <p className="tip">曲がった矢印ツールで、上下の試薬の文字 (HCl など) からも・へも矢印を引けます。</p>
       <p className="tip">数字は自動で下付き (H2SO4)。n-BuLi・t-BuOK・(R) は自動で斜体。*斜体* _&#123;下付&#125; ^&#123;上付&#125;。</p>
@@ -257,7 +259,7 @@ function TextPanel({ t }: { t: TextBox }) {
   };
   return (
     <section>
-      <h3>{t.attachAtom ? '化合物番号' : '文字'}</h3>
+      <h3>{t.attachAtom ? (t.attachPos === 'left' ? '係数' : '化合物番号') : '文字'}</h3>
       <label className="field">内容<textarea rows={2} value={t.text} onChange={(e) => live({ text: e.target.value })} onBlur={() => endTransient()} /></label>
       <div className="row">
         <span className="k">大きさ</span>
@@ -365,6 +367,35 @@ function DocPanel() {
   );
 }
 
+/** 反応式の係数 (分子の前の数字)。分子を選んで数字キーでも入力できる */
+function CoefficientField({ doc, comps }: { doc: Doc; comps: Id[][] }) {
+  const vals = comps.map((c) => coefficientOf(doc, c));
+  const cur = vals.every((v) => v === vals[0]) && vals[0] !== null ? String(vals[0]) : '';
+  const [text, setText] = useState(cur);
+  useEffect(() => setText(cur), [cur]);
+  if (vals.some((v) => v === null)) return null;
+  return (
+    <div className="row">
+      <span className="k">係数</span>
+      <input
+        className="num"
+        inputMode="numeric"
+        value={text}
+        placeholder="1"
+        aria-label="反応式の係数"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => text !== cur && setSelectedCoefficient(text)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+      />
+      {[2, 3, 4].map((n) => <button key={n} className={`mini ${cur === String(n) ? 'on' : ''}`} onClick={() => setSelectedCoefficient(String(n))}>{n}</button>)}
+      <button className="mini" onClick={() => setSelectedCoefficient('')} disabled={cur === '1'}>消す</button>
+    </div>
+  );
+}
+
 export function Inspector() {
   const tab = useStore((s) => activeTab(s));
   const selection = useStore((s) => s.selection);
@@ -402,6 +433,7 @@ export function Inspector() {
         <section>
           <h3>{molGroups.length === 1 ? '分子' : `分子 (${molGroups.length})`}</h3>
           {molGroups.slice(0, 4).map((c) => <MoleculeInfo key={c.join(',')} doc={doc} atomIds={c} />)}
+          <CoefficientField doc={doc} comps={molGroups} />
           <div className="btns">
             <button className="mini icon" onClick={cleanStructure} title="構造を整える (Ctrl+Shift+K)">{Icons.clean}整える</button>
             <button className="mini icon" onClick={() => flipSelection('h')} title="左右反転">{Icons.flipH}左右</button>

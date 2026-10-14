@@ -2,6 +2,7 @@
 // マクマリー有機化学の章の順に、代表的な基質で 1 つずつ。人名反応も収録。
 //   [名前 (| 区切り: 日本語名 | 英語名 | 別名…), 反応 SMILES (原料>>生成物), 矢印の上, 矢印の下]
 //   上の試薬は改行 (\n) で段階を分ける (1. … 2. …)
+import { fold, rankFuzzy } from './fuzzy';
 
 export interface NamedReaction {
   names: string[];
@@ -251,7 +252,7 @@ const ROWS: Row[] = [
 
   // ---- 工業的製法 ----
   ['クメン法|cumene process|Hock process|ホック法|フェノールの工業的製法', 'c1ccccc1.CC=C>>Oc1ccccc1.CC(C)=O', '1. H3PO4 (クメン)\n2. O2 (ヒドロペルオキシド)\n3. H2SO4', ''],
-  ['ハーバー・ボッシュ法|Haber-Bosch process|Haber process|アンモニア合成', 'N#N.[HH]>>N', 'Fe 触媒', '400–500 °C, 20–30 MPa'],
+  ['ハーバー・ボッシュ法|Haber-Bosch process|Haber process|アンモニア合成', 'N#N.[H][H]>>N', 'Fe 触媒', '400–500 °C, 20–30 MPa'],
   ['オストワルト法|Ostwald process|硝酸の工業的製法', 'N.O=O>>O[N+](=O)[O-]', '1. Pt, O2\n2. O2, H2O', ''],
   ['接触法|contact process|硫酸の工業的製法', 'O=S=O.O=O>>OS(=O)(=O)O', '1. V2O5\n2. H2O (発煙硫酸から)', ''],
   ['ヒドロホルミル化|hydroformylation|オキソ法|oxo process', 'CC=C>>CCCC=O', 'CO, H2', 'Co2(CO)8 または Rh 触媒'],
@@ -264,11 +265,7 @@ export const REACTIONS: NamedReaction[] = ROWS.map(([names, rxn, above, below]) 
 });
 
 function normalize(s: string): string {
-  return s
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[\s・,.'’()（）\-‐-―−]/g, '')
-    .replace(/(反応|reaction|rxn)$/, '');
+  return fold(s).replace(/(反応|reaction|rxn|法|process)$/, '');
 }
 
 const KEYS = REACTIONS.map((r) => r.names.map(normalize));
@@ -292,6 +289,57 @@ export function searchReactions(query: string, limit = 8): { name: string; react
   });
   scored.sort((a, b) => b.score - a.score || a.i - b.i);
   return scored.slice(0, limit).map((s) => ({ name: s.name, reaction: REACTIONS[s.i], score: s.score }));
+}
+
+/** 名前が近い反応 (打ち間違い・表記ゆれ・別名の一部)。score は 0〜1 */
+export function fuzzyReactions(query: string, limit = 5, threshold = 0.45): { name: string; reaction: NamedReaction; score: number }[] {
+  return rankFuzzy(query, REACTIONS, (r) => r.names, threshold, limit).map((h) => ({ name: h.name, reaction: h.item, score: h.score }));
+}
+
+/** 矢印の上下の試薬に query を含む反応 (「r NaBH4」→ NaBH4 を使う反応) */
+export function reactionsWithReagent(query: string, limit = 6): NamedReaction[] {
+  const q = fold(query);
+  if (q.length < 2) return [];
+  return REACTIONS.filter((r) => fold(`${r.above} ${r.below}`).includes(q)).slice(0, limit);
+}
+
+let compoundIndex: Promise<Map<string, { i: number; side: 'reactant' | 'product' }[]>> | null = null;
+
+/** 化合物 (SMILES) を原料・生成物に含む反応。原料にあるものを先に */
+export async function reactionsWithCompound(smiles: string, limit = 6): Promise<{ reaction: NamedReaction; side: 'reactant' | 'product' }[]> {
+  const { loadRDKit } = await import('./rdkit');
+  const rd = await loadRDKit();
+  // 立体は区別しない
+  const canon = (s: string): string | null => {
+    const m = rd.get_mol(s.replace(/@+/g, '').replace(/[/\\]/g, ''));
+    if (!m) return null;
+    try {
+      return m.is_valid() ? m.get_smiles() : null;
+    } finally {
+      m.delete();
+    }
+  };
+  compoundIndex ??= Promise.resolve().then(() => {
+    const idx = new Map<string, { i: number; side: 'reactant' | 'product' }[]>();
+    REACTIONS.forEach((r, i) => {
+      for (const [list, side] of [[r.reactants, 'reactant'], [r.products, 'product']] as const) {
+        for (const s of list) {
+          const c = canon(s);
+          if (c) idx.set(c, [...(idx.get(c) ?? []), { i, side }]);
+        }
+      }
+    });
+    return idx;
+  });
+  const key = canon(smiles);
+  if (!key) return [];
+  const hits = (await compoundIndex).get(key) ?? [];
+  const seen = new Set<number>();
+  return [...hits]
+    .sort((a, b) => (a.side === b.side ? a.i - b.i : a.side === 'reactant' ? -1 : 1))
+    .filter((h) => !seen.has(h.i) && !!seen.add(h.i))
+    .slice(0, limit)
+    .map((h) => ({ reaction: REACTIONS[h.i], side: h.side }));
 }
 
 /** 「r 反応名」の r を外す (r の後に空白が必要) */

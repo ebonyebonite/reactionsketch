@@ -912,7 +912,7 @@ export async function proposeMechanismForScheme(): Promise<void> {
     const titleY = all.y2 + 24;
     const caption: TextBox = {
       id: newId('o'), type: 'text', x: all.x1, y: titleY, size: ACS.captionSize, align: 'left', bold: true,
-      text: r.generic ? '反応機構の案 (1 段階で表した場合)' : `反応機構: ${r.title}`,
+      text: r.generic ? `反応機構の案 (1 段階で表した場合${r.radical ? '・片羽の矢印は電子 1 個の動き' : ''})` : `反応機構: ${r.title}${r.radical ? ' (片羽の矢印は電子 1 個の動き)' : ''}`,
     };
     const dx = all.x1 - rb.x1, dy = titleY + 14 - rb.y1;
     const { doc: next, sel } = insertFragment(withObject(d, caption), r.doc, dx, dy);
@@ -922,8 +922,9 @@ export async function proposeMechanismForScheme(): Promise<void> {
     if (r.inexact) toast('矢印を適用しても次の構造と一致しない段階があります。矢印を確認してください', 'error');
     else if (r.generic) {
       const add = r.added?.length ? `矢印の上下から ${[...new Set(r.added)].join('・')} を補い、` : '';
-      toast(`内蔵の機構がない反応なので、${add}原料から生成物への電子の動きを 1 段階の矢印で表しました (実際は多段階のこともあります)`);
+      toast(`内蔵の機構がない反応なので、${add}原料から生成物への電子の動きを 1 段階の矢印で表しました${r.radical ? ' (不対電子は片羽の矢印)' : ''} (実際は多段階のこともあります)`);
     }
+    else if (r.radical) toast(`ラジカル連鎖機構 (開始・成長・停止の ${r.steps} 段) を片羽の矢印で置きました${r.added?.length ? ` (${[...new Set(r.added)].join('・')} を使用)` : ''}`);
     else toast(`反応機構 (${r.steps} 段階) を置きました`);
   } catch (e) {
     toast((e as Error).message, 'error');

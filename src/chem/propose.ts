@@ -8,7 +8,7 @@
 //   できた矢印を実際に適用して (applyArrows)、目的の構造になるかを確かめる。
 // 多段階の機構は、内蔵の機構データ (中間体の SMILES) の各段階に同じ方法を使う。
 import type { MainModule as RDKitModule } from '@rdkit/rdkit';
-import type { Anchor, Atom, Doc, Id, ReactionArrow } from '../model/types';
+import type { Anchor, Atom, CurvedArrow, Doc, Id, ReactionArrow } from '../model/types';
 import { emptyDoc, newId } from '../model/types';
 import { ACS } from '../model/style';
 import { bondBetween, componentOf, components, implicitH, neighbors } from '../model/graph';
@@ -163,8 +163,14 @@ export function deriveStep(S: Doc, T: Doc, map: Map<Id, Id>): StepResult {
   const cT = new Map<Id, number>();
   for (const s of mappedS) cT.set(s, T.atoms[inv.get(s)!].charge);
   for (const s of leftover) cT.set(s, S.atoms[s].charge);
+  // 不対電子が動く段階か: ラジカルの数が変わる原子がある
+  const radOf = (id: Id) => (mappedS.has(id) ? T.atoms[inv.get(id)!].radical ?? 0 : null);
+  const radicalStep = [...mappedS].some((id) => radOf(id) !== (S.atoms[id].radical ?? 0));
+  const totalS0 = Object.values(S.atoms).reduce((t, a) => t + a.charge, 0);
+  const totalT0 = [...cT.values()].reduce((t, c) => t + c, 0);
   // 出ていく原子の電荷: 全体の電荷が保たれるように、電気陰性な方から電子対を持たせていく
-  if (cutBonds.length) {
+  // (ラジカルの段階で電荷が保たれていれば、出ていく原子は電子を 1 個ずつ持って出る = 電荷はそのまま)
+  if (cutBonds.length && !(radicalStep && totalS0 === totalT0)) {
     const totalS = Object.values(S.atoms).reduce((t, a) => t + a.charge, 0);
     const totalT = [...cT.values()].reduce((t, c) => t + c, 0);
     const need = totalS - totalT; // 出ていく側の電荷の変化の合計
@@ -196,8 +202,10 @@ export function deriveStep(S: Doc, T: Doc, map: Map<Id, Id>): StepResult {
     const n = -dc - sum;
     if (n) dN.set(id, n);
   }
-  if ([...dN.values()].some((n) => n % 2 !== 0)) throw new Error('不対電子が動く反応 (ラジカル反応) は、まだ矢印を提案できません');
   if (!dB.size && !dN.size) throw new Error('原料と生成物で結合が変わっていません');
+  // 不対電子が動く段階は、電子を 1 個ずつ片羽の矢印で動かす
+  const oneElectron = radicalStep || [...dN.values()].some((n) => n % 2 !== 0);
+  if (oneElectron) return deriveRadicalStep(S, dB, dN, oT, cT, (id) => radOf(id));
 
   const sources: Src[] = [];
   const sinks: Snk[] = [];
@@ -283,6 +291,121 @@ export function deriveStep(S: Doc, T: Doc, map: Map<Id, Id>): StepResult {
   }
   if (firstTry) return firstTry;
   throw new Error('電子の動きを矢印に分けられませんでした');
+}
+
+/**
+ * 不対電子が動く段階 (ラジカル反応): 電子 1 個ごとに出どころ (切れる結合・原子の不対電子) と行き先 (できる結合・原子) を組にし、
+ * 片羽の矢印で表す。同じ出どころ・行き先の 2 本は両羽の矢印 1 本にまとめる。
+ */
+function deriveRadicalStep(
+  S: Doc, dB: Map<string, number>, dN: Map<Id, number>, oT: Map<string, number>, cT: Map<Id, number>, radOf: (id: Id) => number | null,
+): StepResult {
+  type E1 = { kind: 'atom'; atom: Id } | { kind: 'bond'; a: Id; b: Id };
+  const sources: E1[] = [], sinks: E1[] = [];
+  for (const [k, d] of dB) {
+    const [a, b] = k.split('|');
+    for (let i = 0; i < 2 * Math.abs(d); i++) (d < 0 ? sources : sinks).push({ kind: 'bond', a, b });
+  }
+  for (const [id, n] of dN) for (let i = 0; i < Math.abs(n); i++) (n < 0 ? sources : sinks).push({ kind: 'atom', atom: id });
+  if (sources.length !== sinks.length) throw new Error('電子の数が合いません (生成物のラジカル・電荷・水素を確認してください)');
+  const inBond = (id: Id, t: E1) => t.kind === 'bond' && (t.a === id || t.b === id);
+  const adjacent = (s: E1, t: E1): boolean => {
+    if (s.kind === 'atom') return inBond(s.atom, t);
+    if (t.kind === 'atom') return t.atom === s.a || t.atom === s.b;
+    if (pairKey(s.a, s.b) === pairKey(t.a, t.b)) return false;
+    return s.a === t.a || s.a === t.b || s.b === t.a || s.b === t.b;
+  };
+  const expect = (prod: Doc): boolean => {
+    for (const k of dB.keys()) {
+      const [p, q] = k.split('|');
+      if (!prod.atoms[p] || !prod.atoms[q]) return false;
+      if ((bondBetween(prod, p, q)?.order ?? 0) !== (oT.get(k) ?? 0)) return false;
+    }
+    for (const [id, c] of cT) {
+      const a = prod.atoms[id];
+      if (!a) continue;
+      if (a.charge !== c) return false;
+      const r = radOf(id);
+      if (r !== null && (a.radical ?? 0) !== r) return false;
+    }
+    return true;
+  };
+  // 1 つの結合の 2 個の電子は、別々の行き先へ (均等開裂) を先に試す
+  const baseOrder = sources.map((s) => sinks.map((t, j) => ({ t, j })).filter(({ t }) => adjacent(s, t)).map(({ j }) => j));
+  const rand = rng(11);
+  let firstTry: StepResult | null = null;
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const order = attempt === 0
+      ? baseOrder.map((o, i) => (i % 2 ? [...o].reverse() : o))
+      : baseOrder.map((o) => [...o].sort(() => rand() - 0.5));
+    const m = perfectMatching(sources.length, sinks.length, order);
+    if (!m) {
+      if (attempt === 0) throw new Error('不対電子の動きを矢印に分けられませんでした');
+      continue;
+    }
+    // 矢印 (同じものは数える)
+    const arrows = new Map<string, { from: Anchor; to: Anchor; fromEnd?: Id; n: number }>();
+    const contacts: [Id, Id][] = [];
+    const given = new Map<Id, number>();
+    sources.forEach((s, i) => {
+      const t = sinks[m[i]];
+      let from: Anchor, to: Anchor;
+      let fromEnd: Id | undefined;
+      if (s.kind === 'atom') {
+        from = { kind: 'atom', id: s.atom };
+        given.set(s.atom, (given.get(s.atom) ?? 0) + 1);
+        const tb = t as Extract<E1, { kind: 'bond' }>;
+        const other = tb.a === s.atom ? tb.b : tb.a;
+        const ex = bondBetween(S, s.atom, other);
+        to = ex ? { kind: 'bond', id: ex.id } : { kind: 'atom', id: other };
+        if (!ex) contacts.push([s.atom, other]);
+      } else {
+        from = { kind: 'bond', id: bondBetween(S, s.a, s.b)!.id };
+        if (t.kind === 'atom') to = { kind: 'atom', id: t.atom };
+        else {
+          const shared = [t.a, t.b].find((x) => x === s.a || x === s.b)!;
+          const other = t.a === shared ? t.b : t.a;
+          const ex = bondBetween(S, shared, other);
+          to = ex ? { kind: 'bond', id: ex.id } : { kind: 'atom', id: other };
+          if (!ex) {
+            contacts.push([shared, other]);
+            fromEnd = shared;
+          }
+        }
+      }
+      const key = JSON.stringify([from, to, fromEnd ?? '']);
+      const cur = arrows.get(key);
+      if (cur) cur.n++;
+      else arrows.set(key, { from, to, fromEnd, n: 1 });
+    });
+    let d = S;
+    const ids: Id[] = [];
+    for (const a of arrows.values()) {
+      // 同じ動きの 2 個の電子は両羽の矢印 1 本、残りは片羽
+      const full = Math.floor(a.n / 2), half = a.n % 2;
+      for (let k = 0; k < full + half; k++) {
+        const id = newId('o');
+        ids.push(id);
+        d = withObject(d, { id, type: 'curved', head: k < full ? 'full' : 'half', from: a.from, to: a.to, bend: 0.35, ...(a.fromEnd ? { fromEnd: a.fromEnd } : {}) });
+      }
+    }
+    // 不対電子より多く電子を出す原子には、非共有電子対を描く
+    for (const [id, n] of given) {
+      const a = d.atoms[id];
+      if (n > (a.radical ?? 0)) d = withAtoms(d, [{ ...a, lonePairs: Math.max(a.lonePairs, Math.round(nonbonding(S, a) / 2)) }]);
+    }
+    let product: Doc;
+    try {
+      product = applyArrows(d, ids).product;
+    } catch {
+      continue;
+    }
+    const res = { doc: d, arrowIds: ids, product, contacts, exact: false };
+    if (!firstTry) firstTry = res;
+    if (expect(product)) return { ...res, exact: true };
+  }
+  if (firstTry) return firstTry;
+  throw new Error('不対電子の動きを矢印に分けられませんでした');
 }
 
 // ---- 配置 ----
@@ -477,6 +600,42 @@ function rebend(d: Doc, ids: Id[], inward = false): Doc {
     }
     next = withObject(next, { ...o, bend });
   }
+  return homolysisBends(next, ids);
+}
+
+/**
+ * 均等開裂 (1 つの結合から両端の原子へ片羽の矢印 2 本): 2 本とも結合の同じ側 (分子の外側、なければ上) に大きく膨らませる
+ */
+function homolysisBends(d: Doc, ids: Id[]): Doc {
+  let next = d;
+  const byBond = new Map<Id, CurvedArrow[]>();
+  for (const id of ids) {
+    const o = next.objects[id];
+    if (o?.type !== 'curved' || o.head !== 'half' || o.from.kind !== 'bond' || o.to.kind !== 'atom') continue;
+    const b = next.bonds[o.from.id];
+    if (!b || (o.to.id !== b.a1 && o.to.id !== b.a2)) continue;
+    byBond.set(b.id, [...(byBond.get(b.id) ?? []), o]);
+  }
+  for (const [bid, arrows] of byBond) {
+    if (arrows.length !== 2) continue;
+    const b = next.bonds[bid];
+    const A = next.atoms[b.a1], B = next.atoms[b.a2];
+    const m = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+    // 結合の法線のうち、隣の原子が少ない側 (上下だけなら上)
+    const L = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+    let n = { x: -(B.y - A.y) / L, y: (B.x - A.x) / L };
+    const others = [...neighbors(next, b.a1), ...neighbors(next, b.a2)].map((x) => x.atom).filter((x) => x.id !== b.a1 && x.id !== b.a2);
+    const score = others.reduce((t, x) => t + ((x.x - m.x) * n.x + (x.y - m.y) * n.y), 0);
+    if (score > 0.01 || (Math.abs(score) <= 0.01 && n.y > 0)) n = { x: -n.x, y: -n.y };
+    for (const o of arrows) {
+      const T = next.atoms[(o.to as { id: Id }).id];
+      const dx = T.x - m.x, dy = T.y - m.y;
+      const l = Math.hypot(dx, dy) || 1;
+      // この矢印の法線 (−dy, dx) が n と同じ向きなら正
+      const sign = (-dy / l) * n.x + (dx / l) * n.y >= 0 ? 1 : -1;
+      next = withObject(next, { ...o, bend: sign * 0.9 });
+    }
+  }
   return next;
 }
 
@@ -561,6 +720,8 @@ export interface MechanismResult {
   inexact?: number;
   /** 足りない元素を補うために加えた、矢印の上下の試薬 */
   added?: string[];
+  /** 不対電子が動く (片羽の矢印を含む) */
+  radical?: boolean;
 }
 
 /** 内蔵の機構データから図を作る */
@@ -878,7 +1039,13 @@ export async function proposeMechanism(d: Doc, scheme: Scheme): Promise<Mechanis
   if (!scheme.left.length || !scheme.right.length) throw new Error('矢印の左右に原料と生成物を描いてください');
   const data = await findMechanismData(d, scheme).catch(() => null);
   if (data) return { ...(await buildMechanism(data)), generic: false };
-  return { ...(await genericMechanism(d, scheme)), generic: true };
+  // 光・開始剤・X2/HBr/Bu3SnH の反応はラジカル連鎖機構で
+  const { radicalChainMechanism } = await import('./radical');
+  const chain = await radicalChainMechanism(d, scheme).catch(() => null);
+  if (chain) return { ...chain, radical: true, generic: false };
+  const g = await genericMechanism(d, scheme);
+  const half = Object.values(g.doc.objects).some((o) => o.type === 'curved' && o.head === 'half');
+  return { ...g, radical: half, generic: true };
 }
 
 /** 内蔵データのない反応: 原料 → 生成物を 1 段階の矢印で表す */
@@ -922,24 +1089,39 @@ async function genericMechanism(d: Doc, scheme: Scheme): Promise<MechanismResult
   }
   // 動く水素を明示する
   ({ S, T, map } = explicitMovingH(S, T, map));
+  const st = await stepStates(S, T, map);
+  const label = [scheme.arrow.above, scheme.arrow.below].filter((s) => s.trim()).join(', ').replace(/\n/g, ' ');
+  return { doc: assembleMechanism([st.first, st.product], [label]), title: '1 段階の矢印', steps: 1, inexact: st.exact ? 0 : 1, added };
+}
+
+/**
+ * 1 段階: S に矢印を付けて並べた状態と、矢印を適用した結果 (脱離した分子も含む)。
+ * alignToT: 結果を T の形にそろえる (描いた生成物があるとき)。false なら新しい結合ができた分子だけ整える
+ */
+export async function stepStates(S0: Doc, T: Doc, map: Map<Id, Id>, alignToT = true): Promise<{ first: Doc; product: Doc; exact: boolean }> {
+  let S = S0;
   const inv = new Map<Id, Id>();
   for (const [t, s] of map) inv.set(s, t);
-  const backward = formsRing(S, T, map);
+  const backward = alignToT && formsRing(S, T, map);
   if (backward) for (const comp of components(S)) S = await alignComponent(S, comp, T, inv);
   const st = deriveStep(S, T, map);
   const S1 = rebend(arrangeState(st.doc, st.contacts, backward), st.arrowIds, backward);
   // 最後の状態: 矢印を適用した結果 (脱離した分子も含む)。描いた生成物の形にそろえる
   const r = applyArrows(S1, st.arrowIds);
   let P = separateFragments(r.product, r.broken);
-  const changed = components(P).filter((c) => c.some((id) => inv.has(id)));
-  P = await cleanComponents(P, changed.map((c) => c[0])).catch(() => P);
-  for (const comp of changed) P = await alignComponent(P, comp, T, inv);
+  if (alignToT) {
+    const changed = components(P).filter((c) => c.some((id) => inv.has(id)));
+    P = await cleanComponents(P, changed.map((c) => c[0])).catch(() => P);
+    for (const comp of changed) P = await alignComponent(P, comp, T, inv);
+  } else if (r.needsClean) {
+    // 分子どうしの間にできた結合: その分子だけ配置し直す
+    const formed = st.contacts.flat();
+    P = await cleanComponents(P, formed).catch(() => P);
+  }
   // 矢印で非共有電子対が増えた原子は、電子対をすべて描く
   P = withAtoms(P, Object.values(P.atoms).filter((a) => a.lonePairs > 0).map((a) => ({ ...a, lonePairs: Math.round(nonbonding(P, a) / 2) })));
   P = arrangeState(P, [], false);
-  const states = [S1, P];
-  const label = [scheme.arrow.above, scheme.arrow.below].filter((s) => s.trim()).join(', ').replace(/\n/g, ' ');
-  return { doc: assembleMechanism(states, [label]), title: '1 段階の矢印', steps: 1, inexact: st.exact ? 0 : 1, added };
+  return { first: S1, product: P, exact: st.exact };
 }
 
 const selOf = (ids: Id[]): Selection => {
@@ -965,7 +1147,7 @@ function formsRing(S: Doc, T: Doc, map: Map<Id, Id>): boolean {
 }
 
 /** 水素数が減る原子 (出す側) と増える原子 (受け取る側) を組にし、動く H を原子として描く */
-function explicitMovingH(S0: Doc, T0: Doc, map0: Map<Id, Id>): { S: Doc; T: Doc; map: Map<Id, Id> } {
+export function explicitMovingH(S0: Doc, T0: Doc, map0: Map<Id, Id>): { S: Doc; T: Doc; map: Map<Id, Id> } {
   let S = S0, T = T0;
   const map = new Map(map0);
   const donors: Id[] = [], acceptors: Id[] = [];
@@ -992,8 +1174,22 @@ function explicitMovingH(S0: Doc, T0: Doc, map0: Map<Id, Id>): { S: Doc; T: Doc;
     if (ae === 'C') return HYDRIDE.has(de) ? 0 : HETERO.has(de) ? 1 : 2;
     return HETERO.has(de) ? 0 : HYDRIDE.has(de) ? 1 : 2;
   };
+  // 描いてある H 原子 (H–Br・Bu3Sn–H) で、生成物に対応のないもの
+  const mappedS = new Set(map.values());
+  const explicitSpare = Object.values(S.atoms).filter((a) => a.element === 'H' && !a.label && !mappedS.has(a.id) && neighbors(S, a.id).length === 1).map((a) => a.id);
   const remaining = [...donors];
   for (const acc of acceptors) {
+    if (!remaining.length && !spare.length && explicitSpare.length) {
+      // 描いてある H をそのまま受け取る原子へ動かす
+      const nb = (h: Id) => neighbors(S, h)[0].atom.id;
+      explicitSpare.sort((p, q) => pref(nb(p), acc) - pref(nb(q), acc) || dist(p, acc) - dist(q, acc));
+      const h = explicitSpare.shift()!;
+      const tAcc = inv.get(acc)!;
+      const gt = growBond(T, tAcc, bestBondAngle(T, tAcc), 1, 'none', 'H');
+      T = gt.doc;
+      map.set(gt.atomId, h);
+      continue;
+    }
     // 水素を失うはずの原子 (対応のある原子) を先に使い、足りなければ試薬の H
     const pool = remaining.length ? remaining : spare;
     if (!pool.length) throw new Error('水素の出どころが分かりません (H3O+ や NaBH4 などの試薬を矢印の上下に書いてください)');

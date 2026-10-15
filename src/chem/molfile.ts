@@ -2,7 +2,7 @@
 import { emptyDoc, type Atom, type Bond, type Doc, type Id } from '../model/types';
 import { ACS } from '../model/style';
 import { newAtom, newBond } from '../model/edit';
-import { isElement } from '../model/elements';
+import { isElement, valencesFor } from '../model/elements';
 
 /** Molfile 上の 1 結合長 (Å) */
 const MOL_BOND = 1.5;
@@ -64,7 +64,7 @@ export function parseMolblock(text: string): { doc: Doc; atomOrder: Id[] } {
   const nAtoms = parseInt(counts.slice(0, 3), 10);
   const nBonds = parseInt(counts.slice(3, 6), 10);
   if (!isFinite(nAtoms) || !isFinite(nBonds)) throw new Error('Molfile を読み取れません');
-  const raw: { x: number; y: number; sym: string; chg: number }[] = [];
+  const raw: { x: number; y: number; sym: string; chg: number; vvv: number }[] = [];
   for (let i = 0; i < nAtoms; i++) {
     const l = lines[ci + 1 + i];
     const x = parseFloat(l.slice(0, 10));
@@ -72,7 +72,9 @@ export function parseMolblock(text: string): { doc: Doc; atomOrder: Id[] } {
     const sym = l.slice(31, 34).trim();
     const ccc = parseInt(l.slice(36, 39), 10) || 0;
     const chg = ccc === 0 ? 0 : 4 - ccc;
-    raw.push({ x, y, sym, chg });
+    // 原子価の欄 (15 = 原子価 0: [Br] のような単独のラジカル原子)
+    const vvv = parseInt(l.slice(48, 51), 10) || 0;
+    raw.push({ x, y, sym, chg, vvv });
   }
   // RDKit は水素だけの分子 (H2) の座標を nan にする: 横一列に並べる
   if (raw.some((r) => !isFinite(r.x) || !isFinite(r.y))) raw.forEach((r, i) => ((r.x = i - (raw.length - 1) / 2), (r.y = 0)));
@@ -118,9 +120,15 @@ export function parseMolblock(text: string): { doc: Doc; atomOrder: Id[] } {
       label = element === '*' || element === 'R' || element === 'R#' ? '*' : element;
       element = 'C';
     }
+    const charge = hasChgLine ? charges.get(i) ?? 0 : r.chg;
+    let radical = radicals.get(i) ?? 0;
+    // 原子価 0 と書かれた結合のない原子 ([Br] [Cl] [O]): 本来の原子価の分だけ不対電子 (RAD 行がないとき)
+    if (!radical && r.vvv === 15 && !label && !rawBonds.some((b) => b.a === i || b.b === i)) {
+      radical = Math.min(2, valencesFor(element, charge)[0] ?? 0);
+    }
     const a = newAtom((r.x - cx) * k, -(r.y - cy) * k, element, {
-      charge: hasChgLine ? charges.get(i) ?? 0 : r.chg,
-      radical: radicals.get(i) ?? 0,
+      charge,
+      radical,
       ...(label ? { label } : {}),
     });
     atomOrder.push(a.id);

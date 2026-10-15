@@ -18,6 +18,7 @@ const ROWS: Row[] = [
   // ---- アルカン・ハロゲン化アルキル ----
   ['ラジカルハロゲン化|radical halogenation|塩素化|chlorination of alkane', 'C1CCCCC1>>ClC1CCCCC1', 'Cl2', 'hν'],
   ['アリル位臭素化|allylic bromination|NBS 臭素化|Wohl-Ziegler', 'C1=CCCCC1>>BrC1C=CCCC1', 'NBS', 'hν, CCl4'],
+  ['スズヒドリドによるラジカル還元|radical dehalogenation|ラジカル還元|Bu3SnH 還元|tin hydride reduction|脱ハロゲン化', 'BrC1CCCCC1>>C1CCCCC1', 'Bu3SnH, AIBN', 'ベンゼン, Δ'],
   ['SN2 反応|SN2 reaction|二分子求核置換|ワルデン反転', 'CC[C@@H](C)Br>>CC[C@H](C)C#N', 'NaCN', 'DMSO'],
   ['SN1 反応|SN1 reaction|加溶媒分解|solvolysis', 'CC(C)(C)Br>>CC(C)(C)O', 'H2O', ''],
   ['E2 脱離|E2 elimination|ザイツェフ則|Zaitsev', 'CCC(C)(C)Br>>CC=C(C)C', 'NaOEt', 'EtOH, Δ'],

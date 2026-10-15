@@ -10,8 +10,10 @@ import { COUNTER_IONS } from '../model/salt';
 import { coefficientOf } from '../model/coefficient';
 import {
   addCompoundNumber, addRepeatBracket, alignReactionAtoms, balanceReactionCoefficients, setSelectedCoefficient, alignSelection, applyArrowsToNext, proposeMechanismForScheme, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
-  addCounterIon, saltifySelected, splitIonicSelected, neutralizeSelected, suggestConditionsForScheme, applyCondition,
+  addCounterIon, openSpectra, retrosynthesisForSelection, predictProductsForScheme, saltifySelected, splitIonicSelected, neutralizeSelected, suggestConditionsForScheme, applyCondition,
+  applyColor, toggleElementColors,
 } from '../editor/actions';
+import { HIGHLIGHT_COLORS, INK_COLORS, type NamedColor } from '../model/colors';
 import { smilesOf } from '../chem/rdkit';
 import { nameFromSmiles } from '../chem/names';
 import { copyText, exportPrefs, saveExportPrefs } from '../io/export';
@@ -243,6 +245,7 @@ function ReactionPanel({ arrow }: { arrow: ReactionArrow }) {
       <SchemeSummary arrow={arrow} />
       <ConditionSuggestions arrow={arrow} />
       <div className="row">
+        <button className="mini primary" onClick={predictProductsForScheme} title="原料と矢印の上下の試薬から、生成物を矢印の右に描く">生成物を予測</button>
         <button className="mini primary" onClick={proposeMechanismForScheme}>反応機構を提案</button>
         <button className="mini" onClick={alignReactionAtoms}>原子の位置をそろえる</button>
         <button className="mini" onClick={balanceReactionCoefficients}>係数を合わせる</button>
@@ -369,6 +372,40 @@ function SchemeSummary({ arrow }: { arrow: ReactionArrow }) {
   );
 }
 
+/** 色の見本の列。先頭は「なし」 */
+function Swatches({ colors, current, onPick, noneLabel }: { colors: NamedColor[]; current: string | undefined | null; onPick: (v: string | undefined) => void; noneLabel: string }) {
+  return (
+    <div className="swatches" role="group">
+      <button className={`swatch none ${current === undefined ? 'on' : ''}`} title={noneLabel} aria-label={noneLabel} aria-pressed={current === undefined} onClick={() => onPick(undefined)} />
+      {colors.map((c) => (
+        <button key={c.value} className={`swatch ${current === c.value ? 'on' : ''}`} style={{ background: c.value }} title={c.name} aria-label={c.name} aria-pressed={current === c.value} onClick={() => onPick(c.value)} />
+      ))}
+    </div>
+  );
+}
+
+/** 選んだものの色・強調 */
+function ColorSection({ doc }: { doc: Doc }) {
+  const sel = useStore((s) => s.selection);
+  const atoms = [...sel.atoms].map((id) => doc.atoms[id]).filter(Boolean);
+  const bonds = Object.values(doc.bonds).filter((b) => sel.bonds.has(b.id) || (sel.atoms.has(b.a1) && sel.atoms.has(b.a2)));
+  const objs = [...sel.objects].map((id) => doc.objects[id]).filter(Boolean);
+  // 全部が同じ値ならその値、ばらばらなら null
+  const common = (vals: (string | undefined)[]) => (vals.length && vals.every((v) => v === vals[0]) ? vals[0] : null);
+  const ink = common([...atoms.map((a) => a.color), ...bonds.map((b) => b.color), ...objs.map((o) => o.color)]);
+  const hl = common([...atoms.map((a) => a.highlight), ...bonds.map((b) => b.highlight)]);
+  if (!atoms.length && !bonds.length && !objs.length) return null;
+  return (
+    <section>
+      <h3>色</h3>
+      <div className="row wrap"><span className="k">文字・線</span><Swatches colors={INK_COLORS} current={ink} noneLabel="黒 (色なし)" onPick={(v) => applyColor('color', v)} /></div>
+      {(atoms.length > 0 || bonds.length > 0) && (
+        <div className="row wrap"><span className="k">強調</span><Swatches colors={HIGHLIGHT_COLORS} current={hl} noneLabel="強調なし" onPick={(v) => applyColor('highlight', v)} /></div>
+      )}
+    </section>
+  );
+}
+
 function DocPanel() {
   const tab = useStore((s) => activeTab(s));
   const doc = tab.doc;
@@ -386,6 +423,10 @@ function DocPanel() {
         <label className="row check">
           <input type="checkbox" checked={!!doc.settings.showStereo} onChange={(e) => commit({ ...doc, settings: { ...doc.settings, showStereo: e.target.checked || undefined } })} />
           R/S・E/Z を表示 (くさび結合から自動判定)
+        </label>
+        <label className="row check">
+          <input type="checkbox" checked={!!doc.settings.colorAtoms} onChange={toggleElementColors} />
+          元素を色分け (N 青・O 赤・S 黄・ハロゲン 緑 …)
         </label>
         <SchemeToggle />
         <div className="row">
@@ -506,6 +547,10 @@ export function Inspector() {
         <section>
           <h3>{molGroups.length === 1 ? '分子' : `分子 (${molGroups.length})`}</h3>
           {molGroups.slice(0, 4).map((c) => <MoleculeInfo key={c.join(',')} doc={doc} atomIds={c} />)}
+          <div className="row">
+            <button className="mini primary" onClick={openSpectra} title="物性・¹H / ¹³C NMR・IR・MS の予測">物性・スペクトル予測</button>
+            <button className="mini" onClick={retrosynthesisForSelection} title="この分子を作る 1 段の切断と前駆体の候補">逆合成を提案</button>
+          </div>
           <CoefficientField doc={doc} comps={molGroups} />
           <div className="row wrap">
             <span className="k">塩</span>
@@ -536,6 +581,7 @@ export function Inspector() {
           </div>
         </section>
       )}
+      {n > 0 && <ColorSection doc={doc} />}
     </aside>
   );
 }

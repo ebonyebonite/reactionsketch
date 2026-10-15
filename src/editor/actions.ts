@@ -68,6 +68,54 @@ export function setAtomFromInput(atomId: Id, raw: string): void {
   commit(salt ? withCounterIon(updated, atomId, salt.ion).doc : updated);
 }
 
+/** 選んだ分子 (なければ、選んだ反応矢印の生成物・最初の分子) の逆合成を考える */
+export async function retrosynthesisForSelection(): Promise<void> {
+  const d = doc();
+  let target = selectedMolecules(d)[0];
+  if (!target) {
+    const sc = findScheme(d, selectedReactionArrowId(d));
+    target = sc?.right[0] ?? components(d).find((c) => c.length > 1) ?? components(d)[0];
+  }
+  if (!target) {
+    toast('逆合成を考える分子 (標的) を描いて選んでください', 'error');
+    return;
+  }
+  try {
+    setState({ retroFor: { atoms: target, smiles: await smilesOf(d, target) } });
+  } catch (e) {
+    toast((e as Error).message, 'error');
+  }
+}
+
+/** 逆合成の候補を描く: 標的 ⇒ 前駆体 (下に置く) */
+export async function drawRetrosynthesis(target: string, cand: { name: string; precursors: string[]; above: string; below: string }): Promise<void> {
+  const frag0 = await buildReactionDoc([target], cand.precursors, cand.name, [cand.above, cand.below].filter(Boolean).join('\n'));
+  // 逆合成の矢印 (⇒)
+  let frag = frag0;
+  for (const o of Object.values(frag.objects)) if (o.type === 'reaction') frag = withObject(frag, { ...o, kind: 'retro' });
+  const d = doc();
+  const all = buildScene(d).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+  const fb = buildScene(frag).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+  const caption: TextBox = { id: newId('o'), type: 'text', x: all.x1, y: all.y2 + 24, size: ACS.captionSize, align: 'left', bold: true, text: `逆合成: ${cand.name}` };
+  const next0 = withObject(d, caption);
+  const ins = insertFragment(next0, frag, all.x1 - fb.x1, all.y2 + 38 - fb.y1);
+  ins.sel.objects.add(caption.id);
+  commit(ins.doc, ins.sel);
+  ensureVisible(all.x1 + (fb.x2 - fb.x1) / 2, all.y2 + 38 + (fb.y2 - fb.y1) / 2, fb.x2 - fb.x1);
+}
+
+/** 選んだ分子 (なければ最初の分子) の物性・スペクトル予測を開く */
+export function openSpectra(): void {
+  const d = doc();
+  const comps = selectedMolecules(d);
+  const target = comps[0] ?? components(d).find((c) => c.length > 1) ?? components(d)[0];
+  if (!target) {
+    toast('分子を描いて選んでください', 'error');
+    return;
+  }
+  setState({ spectraFor: target });
+}
+
 /** 塩を置く (描き方は設定に従う: イオンに分ける / 化学式) */
 export async function addSalt(salt: Salt, at?: { x: number; y: number }, quiet = false): Promise<void> {
   const { saltStyle, saltStructure } = getState();
@@ -771,14 +819,19 @@ export function addRepeatBracket(): void {
 export async function polymerizeSelected(): Promise<void> {
   const d = doc();
   const comps = selectedComponents(d);
+  if (comps.length === 2) {
+    await condensationPolymer(comps);
+    return;
+  }
   if (comps.length !== 1) {
-    toast('モノマーを 1 つ選択してください', 'error');
+    toast('モノマーを選択してください (付加重合・開環重合は 1 つ、縮合重合は 2 つ)', 'error');
     return;
   }
   const comp = comps[0];
   let unit = monomerToRepeatUnit(d, comp);
   if (!unit) {
-    toast('重合できる C=C 二重結合 (環の外) が見つかりません', 'error');
+    // C=C がなければ、開環重合 (ラクトン・環状エーテル …) か自己縮合 (ヒドロキシ酸・アミノ酸)
+    await condensationPolymer(comps);
     return;
   }
   setState({ busy: '繰り返し単位を作っています…' });
@@ -804,6 +857,49 @@ export async function polymerizeSelected(): Promise<void> {
   commit(withObject(placed, br), sel);
   ensureVisible(arrow.x2 + 12 + (ub.x2 - ub.x1) / 2, cy, ub.x2 - ub.x1);
   toast('繰り返し単位を作りました。矢印の上下に開始剤・条件を書けます');
+}
+
+/** 縮合重合 (2 つのモノマー)・開環重合・自己縮合: n A + n B → [繰り返し単位]n + 副生成物 を下に描く */
+async function condensationPolymer(comps: Id[][]): Promise<void> {
+  const d = doc();
+  setState({ busy: '繰り返し単位を作っています…' });
+  try {
+    const smi = await Promise.all(comps.map((c) => smilesOf(d, c)));
+    const { stepGrowth, ringOpening, selfCondensation } = await import('../chem/polymerize');
+    const r = comps.length === 2 ? await stepGrowth(smi[0], smi[1]) : (await ringOpening(smi[0])) ?? (await selfCondensation(smi[0]));
+    if (!r) {
+      toast(comps.length === 2
+        ? '縮合重合できる官能基の組 (ジカルボン酸・酸塩化物・ジエステル・ジイソシアネート と ジオール・ジアミン) が見つかりません'
+        : '重合できる C=C・環 (ラクトン・ラクタム・環状エーテル)・官能基の組 (ヒドロキシ酸・アミノ酸) が見つかりません', 'error');
+      return;
+    }
+    const { Builder } = await import('../examples');
+    const b = new Builder();
+    for (const [i, s] of smi.entries()) {
+      if (i) b.plus();
+      await b.mol(s, {}, false, '*n*');
+    }
+    const byproduct = r.byproduct ? (comps.length === 2 ? '(2*n*−1)' : '(*n*−1)') : '';
+    b.arrow('forward', r.above, r.below);
+    await b.mol(r.unit);
+    if (r.byproduct) {
+      b.plus();
+      b.manual([['C', 0, 0, { label: r.byproduct }]], [], byproduct);
+    }
+    const frag = b.finish();
+    const all = buildScene(d).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+    const fb = buildScene(frag).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+    const caption: TextBox = { id: newId('o'), type: 'text', x: all.x1, y: all.y2 + 24, size: ACS.captionSize, align: 'left', bold: true, text: r.kind };
+    const ins = insertFragment(withObject(d, caption), frag, all.x1 - fb.x1, all.y2 + 38 - fb.y1);
+    ins.sel.objects.add(caption.id);
+    commit(ins.doc, ins.sel);
+    ensureVisible(all.x1 + (fb.x2 - fb.x1) / 2, all.y2 + 38 + (fb.y2 - fb.y1) / 2, fb.x2 - fb.x1);
+    toast(`${r.kind}の繰り返し単位を描きました${r.byproduct ? ` (${r.byproduct} が脱離)` : ''}`);
+  } catch (e) {
+    toast((e as Error).message, 'error');
+  } finally {
+    setState({ busy: null });
+  }
 }
 
 // ---- 反応機構の提案・原子の位置合わせ ----
@@ -892,6 +988,67 @@ export function applyCondition(arrowId: Id, cond: { above: string; below: string
   }
   commit(next);
   toast('反応条件を矢印に入れました (元に戻すで取り消せます)');
+}
+
+/** 原料と矢印の上下の試薬から生成物を予測して、矢印の右 (生成物があれば下に新しい反応式) に描く */
+export async function predictProductsForScheme(): Promise<void> {
+  const d = doc();
+  const sc = findScheme(d, selectedReactionArrowId(d));
+  if (!sc || !sc.left.length) {
+    toast('反応矢印の左に原料を描き、矢印の上下に試薬を書いてください (例: NaBH4, MeOH)', 'error');
+    return;
+  }
+  setState({ busy: '生成物を予測しています…' });
+  try {
+    const sp = schemeSpecies(d, sc);
+    const L = await Promise.all(sp.left.map((g) => Promise.all(g.map((c) => smilesOf(d, c))).then((x) => x.join('.'))));
+    const text = [sc.arrow.above, sc.arrow.below].join('\n');
+    const { predictProducts } = await import('../chem/predict');
+    const r = await predictProducts(L.flatMap((s) => s.split('.')), text);
+    if (!r) {
+      toast('この試薬と原料の組み合わせは、内蔵の反応テンプレートにありません。試薬を矢印の上下に書くか (NaBH4, PCC, HBr, mCPBA …)、反応名で検索してください', 'error');
+      return;
+    }
+    const frags = await Promise.all(r.products.map((s) => structureFromText(s)));
+    let next = d;
+    const sel = emptySelection();
+    if (!sc.right.length) {
+      // 矢印の右に並べる
+      const ay = (sc.arrow.y1 + sc.arrow.y2) / 2;
+      let cursor = Math.max(sc.arrow.x1, sc.arrow.x2) + 8;
+      frags.forEach((f, i) => {
+        if (i) {
+          const plus: PlusSign = { id: newId('o'), type: 'plus', x: cursor + 9, y: ay };
+          next = withObject(next, plus);
+          sel.objects.add(plus.id);
+          cursor += 18;
+        }
+        const b = buildScene(f).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+        const ins = insertFragment(next, f, cursor - b.x1, ay - (b.y1 + b.y2) / 2);
+        next = ins.doc;
+        ins.sel.atoms.forEach((id) => sel.atoms.add(id));
+        ins.sel.bonds.forEach((id) => sel.bonds.add(id));
+        cursor += b.x2 - b.x1;
+      });
+    } else {
+      // 描いた生成物はそのままに、予測した反応式を下に置く
+      const frag = await buildReactionDoc(L, r.products, sc.arrow.above, sc.arrow.below);
+      const all = buildScene(d).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+      const fb = buildScene(frag).bbox ?? { x1: 0, y1: 0, x2: 0, y2: 0 };
+      const caption: TextBox = { id: newId('o'), type: 'text', x: all.x1, y: all.y2 + 24, size: ACS.captionSize, align: 'left', bold: true, text: `予測した生成物: ${r.name}` };
+      next = withObject(next, caption);
+      sel.objects.add(caption.id);
+      const ins = insertFragment(next, frag, all.x1 - fb.x1, all.y2 + 38 - fb.y1);
+      next = ins.doc;
+      ins.sel.atoms.forEach((id) => sel.atoms.add(id));
+    }
+    commit(next, sel);
+    toast(`${r.name}${r.note ? ` (${r.note})` : ''}。予測なので、立体や副生成物は確認してください`);
+  } catch (e) {
+    toast(`生成物を予測できませんでした: ${(e as Error).message}`, 'error');
+  } finally {
+    setState({ busy: null });
+  }
 }
 
 /** 反応式から反応機構 (曲がった矢印つき) を提案し、反応式の下に置く */
@@ -1036,4 +1193,48 @@ async function autoBalance(frag: Doc): Promise<{ doc: Doc; note: string }> {
   const r = balanceScheme(frag, sc);
   if ('error' in r || !r.changed) return { doc: frag, note: '' };
   return { doc: layoutSchemeDoc(r.doc) ?? r.doc, note: `係数: ${equationText(r.doc, schemeSpecies(r.doc, sc), r)}` };
+}
+
+/** 選んだ原子・結合 (と矢印・文字・括弧) に色 (color) や強調 (highlight) を付ける。value が undefined なら外す */
+export function applyColor(field: 'color' | 'highlight', value: string | undefined): void {
+  const d0 = doc();
+  const sel = getState().selection;
+  const set = <T extends object>(o: T): T => {
+    const out = { ...o } as T & Record<string, unknown>;
+    if (value) (out as Record<string, unknown>)[field] = value;
+    else delete (out as Record<string, unknown>)[field];
+    return out;
+  };
+  const atoms = { ...d0.atoms };
+  const bonds = { ...d0.bonds };
+  const objects = { ...d0.objects };
+  let n = 0;
+  for (const id of sel.atoms) {
+    if (!atoms[id]) continue;
+    atoms[id] = set(atoms[id]);
+    n++;
+  }
+  for (const b of Object.values(d0.bonds)) {
+    if (!sel.bonds.has(b.id) && !(sel.atoms.has(b.a1) && sel.atoms.has(b.a2))) continue;
+    bonds[b.id] = set(b);
+    n++;
+  }
+  if (field === 'color') {
+    for (const id of sel.objects) {
+      if (!objects[id]) continue;
+      objects[id] = set(objects[id]);
+      n++;
+    }
+  }
+  if (!n) {
+    toast(field === 'color' ? '色を付ける原子・結合・矢印・文字を選んでください' : '強調する原子・結合を選んでください', 'error');
+    return;
+  }
+  commit({ ...d0, atoms, bonds, objects });
+}
+
+/** 元素の色分けを切り替える (このタブ) */
+export function toggleElementColors(): void {
+  const d = doc();
+  commit({ ...d, settings: { ...d.settings, colorAtoms: !d.settings.colorAtoms || undefined } });
 }

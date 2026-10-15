@@ -967,7 +967,7 @@ export function Canvas() {
     for (const id of ids) {
       const sc = findScheme(doc, id, scene);
       if (!sc || sc.arrow.id !== id) continue;
-      for (const r of schemeRegions(doc, sc, scene)) els.push(regionEl(r, id, z));
+      for (const r of schemeRegions(doc, sc, scene)) els.push(regionEl(r, id, z, sc.arrow.kind === 'retro'));
     }
     return els;
   }, [doc, scene, selection, hover, showSchemes, z]);
@@ -1053,8 +1053,10 @@ const REGION_STYLE: Record<SchemeRegion['role'], { color: string; label: string 
 };
 
 /** 反応式の範囲の枠と名札 (画面上の大きさが一定になるように zoom で割る) */
-function regionEl(r: SchemeRegion, arrowId: Id, z: number): JSX.Element {
-  const { color, label } = REGION_STYLE[r.role];
+function regionEl(r: SchemeRegion, arrowId: Id, z: number, retro = false): JSX.Element {
+  const { color } = REGION_STYLE[r.role];
+  // 逆合成の矢印 (⇒) では、左が標的・右が前駆体
+  const label = retro && r.role === 'reactants' ? '標的' : retro && r.role === 'products' ? '前駆体' : REGION_STYLE[r.role].label;
   const pad = r.role === 'conditions' ? 1.5 : 4;
   const x = r.box.x1 - pad, y = r.box.y1 - pad, w = r.box.x2 - r.box.x1 + pad * 2, h = r.box.y2 - r.box.y1 + pad * 2;
   const fs = 10.5 / z;

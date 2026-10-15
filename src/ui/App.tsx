@@ -8,6 +8,9 @@ import { TextEditor } from './TextEditor';
 import { Help } from './Help';
 import { ReagentDialog } from './ReagentDialog';
 import { SaltDialog } from './SaltDialog';
+import { SpectraDialog } from './SpectraDialog';
+import { RetroDialog } from './RetroDialog';
+import { PolymerCalcDialog } from './PolymerCalcDialog';
 import { ContextMenu } from './ContextMenu';
 import { activeTab, flushSave, setState, toast, useStore } from '../editor/store';
 import { fitView, installKeys } from '../editor/keys';
@@ -101,6 +104,9 @@ export function App() {
       <Help />
       <ReagentDialog />
       <SaltDialog />
+      <SpectraDialog />
+      <RetroDialog />
+      <PolymerCalcDialog />
       <ContextMenu />
     </div>
   );

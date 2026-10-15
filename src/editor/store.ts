@@ -73,6 +73,12 @@ export interface AppState {
   saltStructure: boolean;
   /** 反応条件の提案 (反応矢印ごと) */
   conditionSuggestions: { arrowId: Id; items: Condition[]; message?: string } | null;
+  /** 物性・スペクトル予測を開いている分子の原子 */
+  spectraFor: Id[] | null;
+  /** 高分子計算 */
+  polymerCalcOpen: boolean;
+  /** 逆合成を考える標的 (分子の原子と SMILES) */
+  retroFor: { atoms: Id[]; smiles: string } | null;
 }
 
 const PREF_SCHEMES = 'reactionsketch.showSchemes';
@@ -148,6 +154,9 @@ function loadInitial(): AppState {
     showSchemes: loadPref(PREF_SCHEMES),
     saltOpen: false,
     conditionSuggestions: null,
+    spectraFor: null,
+    polymerCalcOpen: false,
+    retroFor: null,
     ...loadSaltPref(),
   };
 }

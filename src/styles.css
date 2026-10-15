@@ -397,3 +397,80 @@ td.yield { white-space: nowrap; font-weight: 600; }
 .cond-line .v { display: flex; flex-direction: column; }
 .cond-note { color: var(--muted); font-size: 11.5px; margin: 2px 0; }
 .cond-list .mini { margin-top: 4px; }
+
+/* 物性・スペクトル予測 */
+.modal.spectra { width: min(980px, 100%); }
+.modal h2 .sub { font-size: 14px; font-weight: 500; color: var(--muted); }
+.spec-body { display: grid; grid-template-columns: 240px 1fr; gap: 16px; margin-top: 10px; }
+@media (max-width: 760px) { .spec-body { grid-template-columns: 1fr; } }
+.spec-preview { width: 100%; max-height: 240px; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+.spec-hl { fill: rgba(47, 124, 246, 0.25); stroke: #2f7cf6; stroke-width: 0.8; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.modal-head + .tabs { margin-top: 10px; }
+.spec-chart { width: 100%; height: auto; display: block; background: var(--panel-2); border-radius: 8px; }
+.spec-chart .axis { stroke: var(--muted); stroke-width: 1; }
+.spec-chart .tick { fill: var(--muted); font-size: 10px; text-anchor: middle; font-family: system-ui, sans-serif; }
+.spec-chart .trace { fill: none; stroke: var(--text); stroke-width: 1.2; }
+.spec-chart .stick { stroke: var(--text); stroke-width: 1.6; stroke-linecap: round; }
+.spec-chart .int { fill: var(--muted); font-size: 10px; text-anchor: middle; font-family: system-ui, sans-serif; }
+.spec-chart .hit { fill: transparent; cursor: pointer; }
+.spec-chart .peak.on .hit { fill: rgba(47, 124, 246, 0.12); }
+.spec-chart .peak.on .stick { stroke: var(--accent); }
+.spec-chart .peak.on .int { fill: var(--accent); font-weight: 600; }
+.spec-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+.spec-table th, .spec-table td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+.spec-table th { font-weight: 600; color: var(--muted); white-space: nowrap; }
+.spec-table td.note { color: var(--muted); font-size: 11.5px; }
+.spec-table.peaks tbody tr { cursor: default; }
+.spec-table.peaks tbody tr.on { background: rgba(47, 124, 246, 0.1); }
+.report { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
+.report code { flex: 1; font-size: 12px; white-space: pre-wrap; background: var(--panel-2); padding: 6px 8px; border-radius: 6px; }
+.spec-chart .unit { fill: var(--muted); font-size: 10px; text-anchor: end; font-family: system-ui, sans-serif; }
+.spec-chart .int.on { fill: var(--accent); font-weight: 600; }
+
+/* 逆合成 */
+.modal.retro { width: min(860px, 100%); }
+.thumb { height: 64px; max-width: 220px; background: #fff; border-radius: 6px; border: 1px solid var(--border); }
+.thumb.loading { display: inline-block; font-size: 11px; color: var(--muted); padding: 4px; height: auto; }
+.retro-target { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.retro-target .thumb { height: 84px; }
+.retro-list { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+.retro-list li { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.retro-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.retro-head .cond { color: var(--muted); font-size: 12px; flex: 1; }
+.retro-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.retro-row .arrow, .retro-row .plus { font-size: 18px; color: var(--muted); margin: 0 4px; }
+.retro-pre { display: inline-flex; align-items: center; }
+
+/* 高分子の計算 */
+.modal.polycalc { width: min(940px, 100%); }
+.calc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 16px; margin-top: 8px; }
+.calc-two { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.2fr); gap: 16px; margin-top: 8px; align-items: start; }
+@media (max-width: 760px) { .calc-two { grid-template-columns: 1fr; } }
+.calc-out { margin: 10px 0; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); display: flex; flex-direction: column; gap: 4px; }
+.calc-out.row-out { flex-direction: row; flex-wrap: wrap; gap: 16px; }
+.calc-out .k { color: var(--muted); font-size: 12px; margin-right: 8px; }
+.calc-out b { font-size: 16px; }
+.field.inline { display: flex; align-items: center; gap: 6px; }
+.field.inline input { width: 110px; }
+.polycalc input[type=range] { width: 100%; }
+.spec-table input.cell { width: 120px; }
+.calc-chart { width: 100%; height: auto; background: var(--panel-2); border-radius: 8px; }
+.calc-chart .axis { stroke: var(--muted); stroke-width: 1; }
+.calc-chart .grid { stroke: var(--border); stroke-width: 1; }
+.calc-chart .tick { fill: var(--muted); font-size: 10px; text-anchor: middle; font-family: system-ui, sans-serif; }
+.calc-chart .tick.y { text-anchor: end; }
+.calc-chart .lab { fill: var(--muted); font-size: 11px; text-anchor: middle; font-family: system-ui, sans-serif; }
+.calc-chart .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.calc-chart .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.calc-chart .marker { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.calc-chart .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
+.calc-chart .tip-text { fill: var(--text); font-size: 11px; font-family: system-ui, sans-serif; }
+
+/* 色の見本 */
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.swatch { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 1px solid var(--border); cursor: pointer; background: #fff; }
+.swatch.none { background: linear-gradient(135deg, #fff 45%, #d62728 45%, #d62728 55%, #fff 55%); }
+.swatch.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) { .swatch { width: 30px; height: 30px; } }

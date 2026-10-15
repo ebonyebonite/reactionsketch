@@ -7,12 +7,16 @@ import { spanSize, spanWidth } from './richtext';
 import { cachedStereo } from './stereoCache';
 import { freeDirections, neighborAngles } from './labels';
 import { doubleBondSide, NEWMAN_R } from './bonds';
+import { atomInk } from '../model/colors';
 
 const f = (v: number) => (Math.round(v * 100) / 100).toString();
 
 export function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+/** 強調 (蛍光ペン) の太さ */
+const HL_WIDTH = 7;
 
 const FONT = `font-family="${ACS.fontFamily}, 'Yu Gothic', 'Hiragino Sans', sans-serif"`;
 
@@ -42,46 +46,64 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
   const lw = f(ACS.lineWidth);
   const parts: string[] = [];
 
-  // Newman 投影式の奥の炭素 (円)
+  // 強調 (蛍光ペン): 結合の太い線と原子の丸を、すべての線と文字より後ろに
+  for (const b of Object.values(doc.bonds)) {
+    if (!b.highlight) continue;
+    const A = doc.atoms[b.a1], B = doc.atoms[b.a2];
+    if (A && B) parts.push(`<line x1="${f(A.x)}" y1="${f(A.y)}" x2="${f(B.x)}" y2="${f(B.y)}" stroke="${b.highlight}" stroke-width="${f(HL_WIDTH)}" stroke-linecap="round"/>`);
+  }
   for (const a of Object.values(doc.atoms)) {
-    if (a.newman === 'back') parts.push(`<circle cx="${f(a.x)}" cy="${f(a.y)}" r="${f(NEWMAN_R)}" fill="none" stroke="#000" stroke-width="${lw}"/>`);
+    if (!a.highlight) continue;
+    const r = scene.layouts[a.id]?.visible ? HL_WIDTH * 0.75 : HL_WIDTH * 0.62;
+    parts.push(`<circle cx="${f(a.x)}" cy="${f(a.y)}" r="${f(r)}" fill="${a.highlight}"/>`);
   }
 
-  // 結合
-  parts.push(`<g stroke="#000" stroke-width="${lw}" stroke-linecap="round" fill="none">`);
-  for (const shapes of Object.values(scene.bonds)) {
+  // Newman 投影式の奥の炭素 (円)
+  for (const a of Object.values(doc.atoms)) {
+    if (a.newman === 'back') parts.push(`<circle cx="${f(a.x)}" cy="${f(a.y)}" r="${f(NEWMAN_R)}" fill="none" stroke="${a.color ?? '#000'}" stroke-width="${lw}"/>`);
+  }
+
+  // 結合 (色ごとにまとめる)
+  const byColor = new Map<string, string[]>();
+  for (const [bid, shapes] of Object.entries(scene.bonds)) {
+    const ink = doc.bonds[bid]?.color ?? '#000';
+    const out = byColor.get(ink) ?? [];
+    byColor.set(ink, out);
     for (const s of shapes) {
       if (s.kind === 'line') {
-        parts.push(`<line x1="${f(s.x1)}" y1="${f(s.y1)}" x2="${f(s.x2)}" y2="${f(s.y2)}"${s.w !== ACS.lineWidth ? ` stroke-width="${f(s.w)}" stroke-linecap="butt"` : ''}/>`);
+        out.push(`<line x1="${f(s.x1)}" y1="${f(s.y1)}" x2="${f(s.x2)}" y2="${f(s.y2)}"${s.w !== ACS.lineWidth ? ` stroke-width="${f(s.w)}" stroke-linecap="butt"` : ''}/>`);
       } else if (s.kind === 'path') {
-        parts.push(`<path d="${s.d}"/>`);
+        out.push(`<path d="${s.d}"/>`);
       } else {
-        parts.push(`<polygon points="${s.points.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="#000" stroke="#000" stroke-width="0.2" stroke-linejoin="round"/>`);
+        out.push(`<polygon points="${s.points.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}" stroke="${ink}" stroke-width="0.2" stroke-linejoin="round"/>`);
       }
     }
   }
-  parts.push('</g>');
+  for (const [ink, shapes] of byColor) {
+    parts.push(`<g stroke="${ink}" stroke-width="${lw}" stroke-linecap="round" fill="none">`, ...shapes, '</g>');
+  }
 
   // 原子ラベル
   for (const [id, l] of Object.entries(scene.layouts)) {
     const atom = doc.atoms[id];
+    const ink = atomInk(doc, atom);
     for (const gl of l.glyphs) {
-      parts.push(`<text x="${f(gl.x)}" y="${f(gl.y)}" font-size="${f(gl.size)}" ${FONT} fill="#000">${esc(gl.text)}</text>`);
+      parts.push(`<text x="${f(gl.x)}" y="${f(gl.y)}" font-size="${f(gl.size)}" ${FONT} fill="${ink}">${esc(gl.text)}</text>`);
     }
     if (l.charge) {
       const { x, y, text } = l.charge;
       if (doc.settings.circledCharges && Math.abs(atom.charge) === 1) {
         const r = 2.9;
-        parts.push(`<circle cx="${f(x)}" cy="${f(y)}" r="${r}" fill="#fff" stroke="#000" stroke-width="0.5"/>`);
-        parts.push(`<line x1="${f(x - 1.7)}" y1="${f(y)}" x2="${f(x + 1.7)}" y2="${f(y)}" stroke="#000" stroke-width="0.55"/>`);
-        if (atom.charge > 0) parts.push(`<line x1="${f(x)}" y1="${f(y - 1.7)}" x2="${f(x)}" y2="${f(y + 1.7)}" stroke="#000" stroke-width="0.55"/>`);
+        parts.push(`<circle cx="${f(x)}" cy="${f(y)}" r="${r}" fill="#fff" stroke="${ink}" stroke-width="0.5"/>`);
+        parts.push(`<line x1="${f(x - 1.7)}" y1="${f(y)}" x2="${f(x + 1.7)}" y2="${f(y)}" stroke="${ink}" stroke-width="0.55"/>`);
+        if (atom.charge > 0) parts.push(`<line x1="${f(x)}" y1="${f(y - 1.7)}" x2="${f(x)}" y2="${f(y + 1.7)}" stroke="${ink}" stroke-width="0.55"/>`);
       } else {
         const size = ACS.fontSize * 0.85;
-        parts.push(`<text x="${f(x)}" y="${f(y + size * 0.36)}" font-size="${f(size)}" text-anchor="middle" ${FONT} fill="#000">${esc(text)}</text>`);
+        parts.push(`<text x="${f(x)}" y="${f(y + size * 0.36)}" font-size="${f(size)}" text-anchor="middle" ${FONT} fill="${ink}">${esc(text)}</text>`);
       }
     }
     for (const d of [...l.radicalDots, ...l.lonePairDots]) {
-      parts.push(`<circle cx="${f(d.x)}" cy="${f(d.y)}" r="0.75" fill="#000"/>`);
+      parts.push(`<circle cx="${f(d.x)}" cy="${f(d.y)}" r="0.75" fill="${ink}"/>`);
     }
     if (atom.mapNo) {
       parts.push(`<text x="${f(atom.x + 4)}" y="${f(atom.y + 9)}" font-size="6" ${FONT} fill="#000">${atom.mapNo}</text>`);
@@ -119,36 +141,37 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
   for (const oid of doc.order) {
     const o = doc.objects[oid];
     if (!o) continue;
+    const ink = o.color ?? '#000';
     if (o.type === 'curved') {
       const g = scene.curved[oid];
       if (!g) continue;
-      parts.push(`<path d="${g.path}" fill="none" stroke="#000" stroke-width="${lw}" stroke-linecap="butt"/>`);
+      parts.push(`<path d="${g.path}" fill="none" stroke="${ink}" stroke-width="${lw}" stroke-linecap="butt"/>`);
       const head = arrowHead(g.tip, g.dir, o.head === 'full' ? 'full' : 'half', g.outer);
-      parts.push(`<polygon points="${head.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="#000"/>`);
+      parts.push(`<polygon points="${head.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}"/>`);
     } else if (o.type === 'reaction') {
       const r = scene.reaction[oid];
-      for (const ln of r.geom.lines) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="#000" stroke-width="${lw}"/>`);
-      for (const h of r.geom.heads) parts.push(`<polygon points="${h.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="#000"/>`);
-      for (const d of r.geom.openHeads) parts.push(`<path d="${d}" fill="none" stroke="#000" stroke-width="${lw}" stroke-linejoin="miter"/>`);
-      for (const ln of r.geom.cross) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="#000" stroke-width="${f(ACS.lineWidth * 1.3)}"/>`);
-      parts.push(textGeomSvg(r.above));
-      parts.push(textGeomSvg(r.below));
+      for (const ln of r.geom.lines) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="${ink}" stroke-width="${lw}"/>`);
+      for (const h of r.geom.heads) parts.push(`<polygon points="${h.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}"/>`);
+      for (const d of r.geom.openHeads) parts.push(`<path d="${d}" fill="none" stroke="${ink}" stroke-width="${lw}" stroke-linejoin="miter"/>`);
+      for (const ln of r.geom.cross) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="${ink}" stroke-width="${f(ACS.lineWidth * 1.3)}"/>`);
+      parts.push(textGeomSvg(r.above, ink));
+      parts.push(textGeomSvg(r.below, ink));
     } else if (o.type === 'text') {
       const g = scene.texts[oid];
-      if (g) parts.push(textGeomSvg(g));
+      if (g) parts.push(textGeomSvg(g, ink));
     } else if (o.type === 'bracket') {
       const bp = bracketPath(o);
-      for (const d of bp.paths) parts.push(`<path d="${d}" fill="none" stroke="#000" stroke-width="${lw}"/>`);
+      for (const d of bp.paths) parts.push(`<path d="${d}" fill="none" stroke="${ink}" stroke-width="${lw}"/>`);
       if (bp.label) {
         // 高分子の n などは右下に斜体の添字、遷移状態の ‡ は右上
         const bottom = o.labelPos === 'bottom';
         const italic = bottom && /^[a-z]$/.test(o.label) ? ' font-style="italic"' : '';
-        parts.push(`<text x="${f(bp.label.x)}" y="${f(bp.label.y)}" font-size="${bottom ? 8.5 : 10}" ${FONT}${italic} fill="#000">${esc(o.label)}</text>`);
+        parts.push(`<text x="${f(bp.label.x)}" y="${f(bp.label.y)}" font-size="${bottom ? 8.5 : 10}" ${FONT}${italic} fill="${ink}">${esc(o.label)}</text>`);
       }
     } else if (o.type === 'plus') {
       const s = 3.6;
-      parts.push(`<line x1="${f(o.x - s)}" y1="${f(o.y)}" x2="${f(o.x + s)}" y2="${f(o.y)}" stroke="#000" stroke-width="${f(ACS.lineWidth * 1.2)}"/>`);
-      parts.push(`<line x1="${f(o.x)}" y1="${f(o.y - s)}" x2="${f(o.x)}" y2="${f(o.y + s)}" stroke="#000" stroke-width="${f(ACS.lineWidth * 1.2)}"/>`);
+      parts.push(`<line x1="${f(o.x - s)}" y1="${f(o.y)}" x2="${f(o.x + s)}" y2="${f(o.y)}" stroke="${ink}" stroke-width="${f(ACS.lineWidth * 1.2)}"/>`);
+      parts.push(`<line x1="${f(o.x)}" y1="${f(o.y - s)}" x2="${f(o.x)}" y2="${f(o.y + s)}" stroke="${ink}" stroke-width="${f(ACS.lineWidth * 1.2)}"/>`);
     }
   }
   return parts.join('');

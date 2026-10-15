@@ -24,6 +24,10 @@ export interface Atom {
   hCount?: number;
   /** Newman 投影式の奥側の炭素 (円で表し、結合は円周から描く) */
   newman?: 'back';
+  /** ラベルの色 (#rrggbb)。未指定は黒 (元素の色分けが有効なら元素の色) */
+  color?: string;
+  /** 強調 (原子の後ろに塗る丸の色) */
+  highlight?: string;
 }
 
 /** 高分子の末端 (繰り返し単位の外へ伸びる結合の先)。label が '*' の原子 */
@@ -39,6 +43,10 @@ export interface Bond {
   order: 1 | 2 | 3;
   stereo: BondStereo;
   doublePos: DoublePos;
+  /** 線の色 (#rrggbb)。未指定は黒 */
+  color?: string;
+  /** 強調 (結合の後ろに引く太い線の色) */
+  highlight?: string;
 }
 
 /** 曲がった矢印の始点・終点 */
@@ -63,6 +71,7 @@ export interface CurvedArrow {
   bend: number;
   /** 結合から原子への矢印で、新しい結合を作る側の原子 (未指定なら電気陰性度と距離で決める) */
   fromEnd?: Id;
+  color?: string;
 }
 
 export type ReactionArrowKind = 'forward' | 'equilibrium' | 'retro' | 'resonance' | 'nogo';
@@ -79,6 +88,7 @@ export interface ReactionArrow {
   above: string;
   /** 矢印の下に書く条件 */
   below: string;
+  color?: string;
 }
 
 export interface TextBox {
@@ -94,6 +104,7 @@ export interface TextBox {
   attachAtom?: Id;
   /** 分子に付ける位置: below = 下 (化合物番号), left = 左 (係数 n など) */
   attachPos?: 'below' | 'left';
+  color?: string;
 }
 
 export interface Bracket {
@@ -108,6 +119,7 @@ export interface Bracket {
   label: string;
   /** 文字の位置: top = 右上 (遷移状態 ‡), bottom = 右下 (高分子の n) */
   labelPos?: 'top' | 'bottom';
+  color?: string;
 }
 
 export interface PlusSign {
@@ -115,6 +127,7 @@ export interface PlusSign {
   type: 'plus';
   x: number;
   y: number;
+  color?: string;
 }
 
 export type GraphicObject = CurvedArrow | ReactionArrow | TextBox | Bracket | PlusSign;
@@ -124,6 +137,8 @@ export interface DocSettings {
   circledCharges: boolean;
   /** R/S・E/Z を表示 */
   showStereo?: boolean;
+  /** 原子ラベルを元素ごとに色分け (N 青・O 赤 …) */
+  colorAtoms?: boolean;
 }
 
 export type ReagentRole = 'substrate' | 'reagent' | 'catalyst' | 'solvent' | 'product';

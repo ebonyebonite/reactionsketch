@@ -1,7 +1,7 @@
 // 上部バー: 構造の検索・ファイル・書き出し・編集操作
 import { useEffect, useRef, useState } from 'react';
 import { activeTab, addTab, getState, redo, setState, toast, toProject, undo, useStore } from '../editor/store';
-import { addReactionFromQuery, addStructureFromQuery, alignReactionAtoms, balanceReactionCoefficients, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment, proposeMechanismForScheme, suggestConditionsForScheme } from '../editor/actions';
+import { addReactionFromQuery, addStructureFromQuery, alignReactionAtoms, balanceReactionCoefficients, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment, proposeMechanismForScheme, suggestConditionsForScheme, predictProductsForScheme, retrosynthesisForSelection, polymerizeSelected, openSpectra } from '../editor/actions';
 import { suggestDictionary } from '../chem/dictionary';
 import { saltFormula, saltNameJa, suggestSalts } from '../chem/salts';
 import { fuzzyReactions, reactionQuery, reactionsWithReagent, searchReactions } from '../chem/reactions';
@@ -233,9 +233,22 @@ export function TopBar() {
         <button className="top-btn wide-only" onClick={cleanStructure} title="構造を整える (Ctrl+Shift+K)">{Icons.clean}<span className="lbl">整える</span></button>
         <button className="top-btn wide-only" onClick={autoLayoutScheme} title="反応式を自動で並べる (Ctrl+L)">{Icons.layout}<span className="lbl">整列</span></button>
         <button className="top-btn wide-only" onClick={applyArrowsToNext} title="曲がった矢印を適用して次の構造を作る (Ctrl+Enter)。選んだ矢印だけにも適用できます">{Icons.next}<span className="lbl">次の構造</span></button>
-        <button className="top-btn wide-only" onClick={proposeMechanismForScheme} title="反応式 (原料 → 生成物) から反応機構を提案して、下に置く">{Icons.next}<span className="lbl">機構を提案</span></button>
-        <button className="top-btn wide-only" onClick={suggestConditionsForScheme} title="反応式 (原料 → 生成物) から反応条件・試薬・触媒の候補を出す">{Icons.table}<span className="lbl">条件を提案</span></button>
-        <button className="top-btn wide-only" onClick={() => setState({ reagentsOpen: true })} title="試薬表・収率計算">{Icons.table}<span className="lbl">試薬表</span></button>
+        <Menu label="提案" icon={Icons.idea}>
+          <MenuItem onClick={run(predictProductsForScheme)}>生成物を予測 (原料 + 試薬 →)</MenuItem>
+          <MenuItem onClick={run(proposeMechanismForScheme)}>反応機構を提案 (曲がった矢印)</MenuItem>
+          <MenuItem onClick={run(suggestConditionsForScheme)}>反応条件・試薬・触媒を提案</MenuItem>
+          <MenuItem onClick={run(retrosynthesisForSelection)}>逆合成を提案 (選んだ分子)</MenuItem>
+          <hr />
+          <MenuItem onClick={run(polymerizeSelected)}>重合 (選んだモノマー → 高分子)</MenuItem>
+          <MenuItem onClick={run(balanceReactionCoefficients)}>反応式の係数を合わせる</MenuItem>
+          <MenuItem onClick={run(alignReactionAtoms)}>反応前後の原子の位置をそろえる</MenuItem>
+        </Menu>
+        <Menu label="計算" icon={Icons.calc}>
+          <MenuItem onClick={openSpectra}>物性・スペクトル予測 (NMR・IR・MS)</MenuItem>
+          <MenuItem onClick={() => setState({ polymerCalcOpen: true })}>高分子の計算 (Mn・Mw・重合度・共重合)</MenuItem>
+          <MenuItem onClick={() => setState({ reagentsOpen: true })}>試薬表・収率計算</MenuItem>
+          <MenuItem onClick={() => setState({ saltOpen: true })}>塩・イオンを作る</MenuItem>
+        </Menu>
         <button className="top-btn primary" onClick={run(() => exportCurrent('copy-png'))} title="PNG をコピー (Ctrl+C)">{Icons.copy}<span className="lbl">PNG コピー</span></button>
         <Menu label="ファイル" icon={Icons.save}>
           <MenuItem onClick={() => addTab()} kbd="Ctrl+T">新しいタブ</MenuItem>
@@ -279,12 +292,6 @@ export function TopBar() {
           <MenuItem onClick={cleanStructure} kbd="Ctrl+Shift+K">構造を整える</MenuItem>
           <MenuItem onClick={autoLayoutScheme} kbd="Ctrl+L">反応式を自動で並べる</MenuItem>
           <MenuItem onClick={applyArrowsToNext} kbd="Ctrl+Enter">次の構造を作る</MenuItem>
-          <MenuItem onClick={proposeMechanismForScheme}>反応機構を提案</MenuItem>
-          <MenuItem onClick={suggestConditionsForScheme}>反応条件・試薬・触媒を提案</MenuItem>
-          <MenuItem onClick={alignReactionAtoms}>反応前後の原子の位置をそろえる</MenuItem>
-          <MenuItem onClick={balanceReactionCoefficients}>反応式の係数を合わせる</MenuItem>
-          <MenuItem onClick={() => setState({ reagentsOpen: true })}>試薬表・収率計算</MenuItem>
-          <MenuItem onClick={() => setState({ saltOpen: true })}>塩・イオンを作る</MenuItem>
           <hr />
           <MenuItem onClick={() => setState({ helpOpen: true })}>使い方</MenuItem>
         </Menu>

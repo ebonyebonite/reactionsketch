@@ -4,9 +4,10 @@ import type { Atom, Bond, CurvedArrow, ReactionArrowKind } from '../model/types'
 import { expandToMolecules, updateAtom, updateBond, withObject } from '../model/edit';
 import { activeTab, commit, getState, redo, setState, undo, useStore } from '../editor/store';
 import {
-  addCompoundNumber, addRepeatBracket, alignReactionAtoms, suggestConditionsForScheme, balanceReactionCoefficients, setSelectedCoefficient, applyArrowsToNext, proposeMechanismForScheme, autoLayoutScheme, cleanStructure, copySelection, deleteSelected, duplicateSelection, saltifySelected, splitIonicSelected, neutralizeSelected,
-  flipSelection, pasteFromClipboard, polymerizeSelected, selectAll,
+  addCompoundNumber, addRepeatBracket, alignReactionAtoms, suggestConditionsForScheme, balanceReactionCoefficients, setSelectedCoefficient, applyArrowsToNext, proposeMechanismForScheme, autoLayoutScheme, cleanStructure, copySelection, deleteSelected, duplicateSelection, openSpectra, retrosynthesisForSelection, predictProductsForScheme, saltifySelected, splitIonicSelected, neutralizeSelected,
+  flipSelection, pasteFromClipboard, polymerizeSelected, selectAll, applyColor, toggleElementColors,
 } from '../editor/actions';
+import { HIGHLIGHT_COLORS, INK_COLORS, type NamedColor } from '../model/colors';
 import { exportCurrent } from './TopBar';
 
 function Item({ children, onClick, kbd }: { children: ReactNode; onClick: () => void; kbd?: string }) {
@@ -30,6 +31,20 @@ function Chips({ items }: { items: [string, () => void][] }) {
       {items.map(([label, fn]) => (
         <button key={label} className="mini" onClick={() => { setState({ contextMenu: null }); fn(); }}>{label}</button>
       ))}
+    </div>
+  );
+}
+
+/** 色の見本 (先頭は「なし」) */
+function ColorChips({ colors, onPick, noneLabel }: { colors: NamedColor[]; onPick: (v: string | undefined) => void; noneLabel: string }) {
+  const pick = (v: string | undefined) => {
+    setState({ contextMenu: null });
+    onPick(v);
+  };
+  return (
+    <div className="ctx-chips swatches">
+      <button className="swatch none" title={noneLabel} aria-label={noneLabel} onClick={() => pick(undefined)} />
+      {colors.map((c) => <button key={c.value} className="swatch" style={{ background: c.value }} title={c.name} aria-label={c.name} onClick={() => pick(c.value)} />)}
     </div>
   );
 }
@@ -127,6 +142,7 @@ export function ContextMenu() {
             const v = activeTab().view;
             setState({ editing: { kind: 'above', id: o.id, x: ((o.x1 + o.x2) / 2) * v.zoom + v.ox, y: ((o.y1 + o.y2) / 2 - 4) * v.zoom + v.oy, value: o.above } });
           }}>反応条件を入力</Item>
+          <Item onClick={predictProductsForScheme}>生成物を予測 (原料 + 試薬)</Item>
           <Item onClick={proposeMechanismForScheme}>反応機構を提案</Item>
           <Item onClick={suggestConditionsForScheme}>反応条件・試薬・触媒を提案</Item>
           <Item onClick={alignReactionAtoms}>生成物の原子の位置を原料にそろえる</Item>
@@ -153,6 +169,8 @@ export function ContextMenu() {
         <div className="ctx-title">分子</div>
         <Item onClick={() => setState({ selection: expandToMolecules(d, getState().selection) })}>分子全体を選択</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); cleanStructure(); }} kbd="Ctrl+Shift+K">構造を整える</Item>
+        <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); openSpectra(); }}>物性・スペクトル (NMR・IR・MS) を予測</Item>
+        <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); retrosynthesisForSelection(); }}>逆合成を提案</Item>
         <Item onClick={() => atomId && addCompoundNumber(atomId)}>化合物番号を付ける</Item>
         <div className="ctx-sub">塩</div>
         <Chips items={[['Na 塩', () => withMol(() => saltifySelected('Na'))], ['K 塩', () => withMol(() => saltifySelected('K'))], ['塩酸塩', () => withMol(() => saltifySelected('Cl'))], ['イオンに分ける', () => withMol(splitIonicSelected)], ['中性に戻す', () => withMol(neutralizeSelected)]]} />
@@ -164,6 +182,29 @@ export function ContextMenu() {
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); flipSelection('h'); }}>左右反転</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); addRepeatBracket(); }}>繰り返し単位 [ ]n で囲む</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); polymerizeSelected(); }}>重合 (モノマー → ポリマー)</Item>
+      </div>,
+    );
+  }
+  if (t && t.kind !== 'handle') {
+    // 右クリックしたものが選択の外なら、それだけに色を付ける
+    const forTarget = (fn: () => void) => {
+      const s = getState().selection;
+      const inSel = t.kind === 'atom' ? s.atoms.has(t.id) : t.kind === 'bond' ? s.bonds.has(t.id) : s.objects.has(t.id);
+      if (!inSel) {
+        setState({ selection: { atoms: new Set(t.kind === 'atom' ? [t.id] : []), bonds: new Set(t.kind === 'bond' ? [t.id] : []), objects: new Set(t.kind === 'object' ? [t.id] : []) } });
+      }
+      fn();
+    };
+    sections.push(
+      <div key="color">
+        <div className="ctx-sub">色 (文字・線)</div>
+        <ColorChips colors={INK_COLORS} noneLabel="黒 (色なし)" onPick={(v) => forTarget(() => applyColor('color', v))} />
+        {t.kind !== 'object' && (
+          <>
+            <div className="ctx-sub">強調</div>
+            <ColorChips colors={HIGHLIGHT_COLORS} noneLabel="強調なし" onPick={(v) => forTarget(() => applyColor('highlight', v))} />
+          </>
+        )}
       </div>,
     );
   }
@@ -182,6 +223,7 @@ export function ContextMenu() {
         <Item onClick={() => pasteFromClipboard(menu.at)} kbd="Ctrl+V">ここに貼り付け</Item>
         <Item onClick={selectAll} kbd="Ctrl+A">すべて選択</Item>
         <Item onClick={() => setState({ saltOpen: true })}>塩・イオンを作る…</Item>
+        <Item onClick={toggleElementColors}>{d.settings.colorAtoms ? '元素の色分けをやめる' : '元素を色分け (N 青・O 赤 …)'}</Item>
         <Item onClick={autoLayoutScheme} kbd="Ctrl+L">反応式を並べる</Item>
         <Item onClick={applyArrowsToNext} kbd="Ctrl+Enter">矢印を適用して次の構造</Item>
         <Item onClick={() => exportCurrent('copy-png')}>全体を PNG でコピー</Item>

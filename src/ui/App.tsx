@@ -7,6 +7,7 @@ import { Inspector } from './Inspector';
 import { TextEditor } from './TextEditor';
 import { Help } from './Help';
 import { ReagentDialog } from './ReagentDialog';
+import { SaltDialog } from './SaltDialog';
 import { ContextMenu } from './ContextMenu';
 import { activeTab, flushSave, setState, toast, useStore } from '../editor/store';
 import { fitView, installKeys } from '../editor/keys';
@@ -30,13 +31,17 @@ const HINTS: Record<string, string> = {
   element: '原子をクリックで元素を置き換え・空白をクリックで原子を置く',
 };
 
+// タッチの端末 (iPad など) では、指の操作も案内する
+const TOUCH_HINT = '2 本指タップ・長押しでメニュー / 2 本指で移動・拡大 / 3 本指タップ・左スワイプで元に戻す、右スワイプでやり直す';
+const isTouchDevice = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+
 function StatusBar() {
   const tool = useStore((s) => s.tool);
   const zoom = useStore((s) => activeTab(s).view.zoom);
   const busy = useStore((s) => s.busy);
   return (
     <footer className="statusbar">
-      <span className="hint">{busy ?? HINTS[tool.kind]}</span>
+      <span className="hint">{busy ?? (isTouchDevice() ? `${HINTS[tool.kind]}。${TOUCH_HINT}` : HINTS[tool.kind])}</span>
       <span className="zoom">
         <button className="mini" onClick={fitView} title="全体を表示 (Ctrl+0)">{Icons.fit}</button>
         {Math.round((zoom / 2.2) * 100)}%
@@ -95,6 +100,7 @@ export function App() {
       <Toast />
       <Help />
       <ReagentDialog />
+      <SaltDialog />
       <ContextMenu />
     </div>
   );

@@ -4,12 +4,13 @@ import type { Atom, Bond, Bracket, CurvedArrow, Doc, Id, ReactionArrow, Reaction
 import { selectedAtomIds, selectionSize, updateAtom, updateBond, withObject } from '../model/edit';
 import { components } from '../model/graph';
 import { exactMass, formulaOf, formulaText, hillOrder, hrmsSentence, molecularWeight, type Adduct } from '../model/formula';
-import { activeTab, commit, endTransient, setState, toast, updateTransient, useStore } from '../editor/store';
+import { activeTab, commit, endTransient, saveShowSchemes, setState, toast, updateTransient, useStore } from '../editor/store';
+import { findScheme } from '../model/scheme';
 import { COUNTER_IONS } from '../model/salt';
 import { coefficientOf } from '../model/coefficient';
 import {
   addCompoundNumber, addRepeatBracket, alignReactionAtoms, balanceReactionCoefficients, setSelectedCoefficient, alignSelection, applyArrowsToNext, proposeMechanismForScheme, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
-  addCounterIon,
+  addCounterIon, saltifySelected, splitIonicSelected, neutralizeSelected, suggestConditionsForScheme, applyCondition,
 } from '../editor/actions';
 import { smilesOf } from '../chem/rdkit';
 import { nameFromSmiles } from '../chem/names';
@@ -239,6 +240,8 @@ function ReactionPanel({ arrow }: { arrow: ReactionArrow }) {
         }}>短く</button>
         <button className="mini" onClick={() => set({ x1: arrow.x2, y1: arrow.y2, x2: arrow.x1, y2: arrow.y1 })}>向きを逆に</button>
       </div>
+      <SchemeSummary arrow={arrow} />
+      <ConditionSuggestions arrow={arrow} />
       <div className="row">
         <button className="mini primary" onClick={proposeMechanismForScheme}>反応機構を提案</button>
         <button className="mini" onClick={alignReactionAtoms}>原子の位置をそろえる</button>
@@ -300,6 +303,72 @@ function BracketPanel({ b }: { b: Bracket }) {
   );
 }
 
+/** 反応条件の提案と、その候補 (クリックで矢印の上下に入れる) */
+function ConditionSuggestions({ arrow }: { arrow: ReactionArrow }) {
+  const sug = useStore((s) => s.conditionSuggestions);
+  const busy = useStore((s) => s.busy);
+  const mine = sug && sug.arrowId === arrow.id ? sug : null;
+  return (
+    <div className="cond-suggest">
+      <div className="row">
+        <button className="mini primary" disabled={!!busy} onClick={suggestConditionsForScheme} title="原料と生成物の官能基の変化から、試薬・触媒・溶媒・温度の候補を出します">
+          {mine ? '条件を提案し直す' : '反応条件・試薬・触媒を提案'}
+        </button>
+        {mine && <button className="mini" onClick={() => setState({ conditionSuggestions: null })}>閉じる</button>}
+      </div>
+      {mine?.message && <p className="tip warn">{mine.message}</p>}
+      {mine && mine.items.length > 0 && (
+        <ul className="cond-list">
+          {mine.items.map((c, i) => (
+            <li key={i}>
+              <div className="cond-title">
+                <span>{c.title}</span>
+                <span className="cond-src">{c.source}</span>
+              </div>
+              {c.above && <div className="cond-line"><span className="k">上 (試薬)</span><span className="v">{c.above.split('\n').map((l, j) => <span key={j}>{l}</span>)}</span></div>}
+              {c.below && <div className="cond-line"><span className="k">下 (条件)</span><span className="v">{c.below}</span></div>}
+              {c.catalyst && <div className="cond-line"><span className="k">触媒</span><span className="v">{c.catalyst}</span></div>}
+              {c.note && <div className="cond-note">{c.note}</div>}
+              <button className="mini" onClick={() => applyCondition(arrow.id, c)}>矢印に入れる</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {mine && mine.items.length > 0 && <p className="tip">官能基の変化と内蔵の反応辞書からの推定です。実際の条件は文献で確認してください。</p>}
+    </div>
+  );
+}
+
+function SchemeToggle() {
+  const on = useStore((s) => s.showSchemes);
+  return (
+    <label className="row check">
+      <input type="checkbox" checked={on} onChange={(e) => saveShowSchemes(e.target.checked)} />
+      反応式の範囲 (原料・生成物・試薬の枠) を常に表示
+    </label>
+  );
+}
+
+/** 反応矢印が原料・生成物・試薬として扱う分子の内訳 */
+function SchemeSummary({ arrow }: { arrow: ReactionArrow }) {
+  const d = activeTab().doc;
+  const sc = findScheme(d, arrow.id);
+  if (!sc || sc.arrow.id !== arrow.id) return null;
+  const n = (comps: Id[][]) => comps.length;
+  const text = [arrow.above, arrow.below].filter((t) => t.trim()).length;
+  const empty = !sc.left.length || !sc.right.length;
+  return (
+    <div className={`scheme-summary ${empty ? 'warn' : ''}`}>
+      <span className="chip reactants">原料 {n(sc.left)}</span>
+      <span className="chip products">生成物 {n(sc.right)}</span>
+      {(sc.reagents.length > 0 || text > 0) && <span className="chip reagents">試薬 {sc.reagents.length ? `構造式 ${sc.reagents.length}` : ''}{sc.reagents.length && text ? '・' : ''}{text ? '文字' : ''}</span>}
+      <p className="tip">{empty
+        ? '矢印の左右に分子が見つかりません。同じ高さに、矢印の近く (＋でつなぐか 4 結合分以内) に置いてください。'
+        : '画面の枠で囲んだ分子が、機構の提案・係数・条件の提案の対象です。離れた分子は ＋ でつなぐと含まれます。'}</p>
+    </div>
+  );
+}
+
 function DocPanel() {
   const tab = useStore((s) => activeTab(s));
   const doc = tab.doc;
@@ -318,6 +387,10 @@ function DocPanel() {
           <input type="checkbox" checked={!!doc.settings.showStereo} onChange={(e) => commit({ ...doc, settings: { ...doc.settings, showStereo: e.target.checked || undefined } })} />
           R/S・E/Z を表示 (くさび結合から自動判定)
         </label>
+        <SchemeToggle />
+        <div className="row">
+          <button className="mini" onClick={() => setState({ saltOpen: true })}>塩・イオンを作る…</button>
+        </div>
         <div className="row">
           <button className="mini" onClick={renumberCompounds}>化合物番号を左から振り直す</button>
         </div>
@@ -434,6 +507,15 @@ export function Inspector() {
           <h3>{molGroups.length === 1 ? '分子' : `分子 (${molGroups.length})`}</h3>
           {molGroups.slice(0, 4).map((c) => <MoleculeInfo key={c.join(',')} doc={doc} atomIds={c} />)}
           <CoefficientField doc={doc} comps={molGroups} />
+          <div className="row wrap">
+            <span className="k">塩</span>
+            <button className="mini" onClick={() => saltifySelected('Na')} title="最も酸性の O–H (カルボン酸など) の H を外し、Na⁺ を置く">Na 塩</button>
+            <button className="mini" onClick={() => saltifySelected('K')}>K 塩</button>
+            <button className="mini" onClick={() => saltifySelected('Cl')} title="最も塩基性の N に H⁺ を付け、Cl⁻ を置く">塩酸塩</button>
+            <button className="mini" onClick={() => saltifySelected('TFA')}>TFA 塩</button>
+            <button className="mini" onClick={splitIonicSelected} title="Na–O の結合や ONa のラベルを O⁻ Na⁺ に分ける">イオンに分ける</button>
+            <button className="mini" onClick={neutralizeSelected} title="電荷を 0 にし、対イオンを消す">中性に戻す</button>
+          </div>
           <div className="btns">
             <button className="mini icon" onClick={cleanStructure} title="構造を整える (Ctrl+Shift+K)">{Icons.clean}整える</button>
             <button className="mini icon" onClick={() => flipSelection('h')} title="左右反転">{Icons.flipH}左右</button>

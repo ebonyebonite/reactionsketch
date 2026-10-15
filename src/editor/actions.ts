@@ -10,14 +10,17 @@ import { ELEMENTS, lookupAbbreviation } from '../model/elements';
 import { components, componentOf } from '../model/graph';
 import { activeTab, commit, getState, setState, setView, toast } from './store';
 import { buildScene, componentBox } from '../render/scene';
-import { cleanComponents, expandLabels, structureFromText } from '../chem/rdkit';
+import { cleanComponents, expandLabels, smilesOf, structureFromText } from '../chem/rdkit';
 import { searchStructure, searchStructureExact } from '../chem/names';
 import { fuzzyReactions, reactionsWithCompound, reactionsWithReagent, searchReactions, type NamedReaction } from '../chem/reactions';
 import { lookupDictionary } from '../chem/dictionary';
 import { buildReactionDoc } from '../reactionScheme';
-import { balanceScheme, equationText, schemeSpecies, setCoefficient } from '../model/coefficient';
+import { findScheme } from '../model/scheme';
+import { balanceScheme, coefficientOf, equationText, schemeSpecies, setCoefficient, shiftRowRight } from '../model/coefficient';
 import { applyArrows, separateFragments } from '../model/mechanism';
 import { parseSalt, withCounterIon, type CounterIon } from '../model/salt';
+import { buildSaltDoc, parseSaltQuery, saltFormula, saltNameJa, type Salt } from '../chem/salts';
+import { counterIon, neutralize, splitIonic, toSalt } from '../model/saltOps';
 import { asRepeatUnit, layoutRepeatUnit, monomerToRepeatUnit, polymerizableBond, repeatUnitBracket } from '../model/polymer';
 
 export const doc = (): Doc => activeTab().doc;
@@ -65,6 +68,61 @@ export function setAtomFromInput(atomId: Id, raw: string): void {
   commit(salt ? withCounterIon(updated, atomId, salt.ion).doc : updated);
 }
 
+/** 塩を置く (描き方は設定に従う: イオンに分ける / 化学式) */
+export async function addSalt(salt: Salt, at?: { x: number; y: number }, quiet = false): Promise<void> {
+  const { saltStyle, saltStructure } = getState();
+  const frag = await buildSaltDoc(salt, saltStyle, saltStructure);
+  placeFragment(frag, at);
+  if (!quiet) toast(`${saltNameJa(salt)} (${saltFormula(salt)}) を${saltStyle === 'ionic' ? 'イオンに分けて' : '化学式で'}追加しました。描き方は「塩を作る」で切り替えられます`);
+}
+
+/** 選んだ分子を塩にする: Na・K などは酸の H を外す、Cl・Br などは塩基の N に H+ を付ける */
+export function saltifySelected(ionName: string): void {
+  const d0 = doc();
+  const comps = selectedMolecules(d0).filter((c) => c.length > 1 || d0.atoms[c[0]]?.charge === 0);
+  if (!comps.length) {
+    toast('塩にする分子を選んでください', 'error');
+    return;
+  }
+  let next = d0;
+  const errors: string[] = [];
+  for (const c of comps) {
+    const r = toSalt(next, c, ionName);
+    if ('error' in r) errors.push(r.error);
+    else next = r.doc;
+  }
+  if (next !== d0) {
+    commit(next);
+    toast(counterIon(ionName)!.charge > 0 ? `${ionName} 塩にしました (最も酸性の H を外しました)` : `${ionName === 'Cl' ? '塩酸塩' : ionName === 'Br' ? '臭化水素酸塩' : `${ionName} 塩`}にしました (最も塩基性の N に H⁺ を付けました)`);
+  } else toast(errors[0] ?? '塩にできませんでした', 'error');
+}
+
+/** 選んだ塩を中性の分子に戻す */
+export function neutralizeSelected(): void {
+  const d0 = doc();
+  const comps = selectedMolecules(d0);
+  const r = neutralize(d0, comps);
+  if (!r.changed) {
+    toast('電荷・対イオンがありません', 'error');
+    return;
+  }
+  commit(r.doc, emptySelection());
+  toast('中性の分子に戻しました');
+}
+
+/** 共有結合で書いた Na–O・ONa などをイオンに分ける */
+export function splitIonicSelected(): void {
+  const d0 = doc();
+  const comps = selectedMolecules(d0);
+  const r = splitIonic(d0, comps.length ? comps : components(d0));
+  if (!r.count) {
+    toast('Na–O・ONa のようなアルカリ金属との結合が見つかりません', 'error');
+    return;
+  }
+  commit(r.doc);
+  toast(`${r.count} か所をイオン (O⁻ Na⁺ など) に分けました`);
+}
+
 /** 原子に対イオンを付ける (原子の電荷は対イオンと逆にする) */
 export function addCounterIon(atomId: Id, ion: CounterIon): void {
   const d = doc();
@@ -98,6 +156,15 @@ export function copySelection(): Doc | null {
     /* noop */
   }
   return frag;
+}
+
+/** 選択範囲を少しずらして複製 (Ctrl+D) */
+export function duplicateSelection(): void {
+  const s = getState().selection;
+  if (!selectionSize(s)) return;
+  const frag = extractSelection(doc(), s);
+  const b = buildScene(frag).bbox;
+  if (b) placeFragment(frag, { x: (b.x1 + b.x2) / 2 + 30, y: (b.y1 + b.y2) / 2 });
 }
 
 export function cutSelection(): void {
@@ -191,6 +258,12 @@ function offsetPaste(frag: Doc): { x: number; y: number } | undefined {
 // ---- 構造の追加 ----
 
 export async function addStructureFromQuery(query: string, at?: { x: number; y: number }, quiet = false): Promise<void> {
+  // 塩 (塩化カルシウム・CaCl2・酢酸ナトリウム …) はイオンの組で描く
+  const salt = parseSaltQuery(query);
+  if (salt) {
+    await addSalt(salt, at, quiet);
+    return;
+  }
   setState({ busy: `「${query.slice(0, 30)}」を検索中…` });
   try {
     const r = await searchStructure(query, async (smi) => {
@@ -245,7 +318,12 @@ export async function addReactionFromQuery(query: string, at?: { x: number; y: n
       const [L, R] = [side(l), side(r)];
       if (!L.length || !R.length) throw new Error('「原料 + 原料 -> 生成物」の形で入力してください');
       coefsGiven = [...L, ...R].some((x) => x.coef !== 1);
-      const found = await Promise.all([...L, ...R].map(({ name: n }) => searchStructure(n).catch((e: Error) => { throw new Error(`「${n}」: ${e.message}`); })));
+      // 塩は化学式 1 つ (label:CaCl2) で描く (係数の計算もできる)
+      const found = await Promise.all([...L, ...R].map(({ name: n }) => {
+        const salt = parseSaltQuery(n);
+        if (salt) return Promise.resolve({ structure: `label:${saltFormula(salt)}`, source: '塩の名前' });
+        return searchStructure(n).catch((e: Error) => { throw new Error(`「${n}」: ${e.message}`); });
+      }));
       const smi = found.map((f) => f.structure);
       frag = await buildReactionDoc(smi.slice(0, L.length), smi.slice(L.length), above, below, { reactants: L.map((x) => x.coef), products: R.map((x) => x.coef) });
       const srcs = [...new Set(found.map((f) => f.source))].join('・');
@@ -738,7 +816,7 @@ function selectedReactionArrowId(d: Doc): Id | undefined {
 /** 反応式の生成物の向き・原子の位置を原料にそろえる */
 export async function alignReactionAtoms(): Promise<void> {
   const d = doc();
-  const { findScheme, alignSchemeProducts } = await import('../chem/propose');
+  const { alignSchemeProducts } = await import('../chem/propose');
   const sc = findScheme(d, selectedReactionArrowId(d));
   if (!sc || !sc.left.length || !sc.right.length) {
     toast('反応矢印の左右に原料と生成物を描いてください', 'error');
@@ -755,10 +833,71 @@ export async function alignReactionAtoms(): Promise<void> {
   }
 }
 
+/** 反応式から反応条件 (試薬・触媒・溶媒・温度) の候補を出す (結果は反応矢印のパネルに表示) */
+export async function suggestConditionsForScheme(): Promise<void> {
+  const d = doc();
+  const sc = findScheme(d, selectedReactionArrowId(d));
+  if (!sc || !sc.left.length || !sc.right.length) {
+    toast('反応矢印の左右に原料と生成物を描いてください (r 反応名 で置いた式でも使えます)', 'error');
+    return;
+  }
+  // パネルに結果を出すため、矢印を選んでパネルを開く
+  setState({ selection: { atoms: new Set(), bonds: new Set(), objects: new Set([sc.arrow.id]) }, panelOpen: true, busy: '反応条件を考えています…' });
+  try {
+    const sp = schemeSpecies(d, sc);
+    // 係数の分だけ同じ分子を数える (2 CH3CHO → アルドール)
+    const smiles = async (groups: Id[][][]) => {
+      const out: string[] = [];
+      for (const g of groups) {
+        const k = Math.max(1, Math.min(4, Math.round(coefficientOf(d, g[0]) ?? 1)));
+        const s = (await Promise.all(g.map((c) => smilesOf(d, c)))).join('.');
+        for (let i = 0; i < k; i++) out.push(s);
+      }
+      return out;
+    };
+    const [L, R] = await Promise.all([smiles(sp.left), smiles(sp.right)]);
+    const { suggestConditions } = await import('../chem/conditions');
+    const items = await suggestConditions(L, R);
+    setState({
+      conditionSuggestions: {
+        arrowId: sc.arrow.id,
+        items,
+        message: items.length ? undefined : '官能基の変化から条件を推定できませんでした。原料・生成物が正しく描けているか、副生成物を省いていないか確認してください',
+      },
+    });
+    if (!items.length) toast('反応条件を推定できませんでした', 'error');
+  } catch (e) {
+    toast(`反応条件を提案できませんでした: ${(e as Error).message}`, 'error');
+  } finally {
+    setState({ busy: null });
+  }
+}
+
+/** 提案した条件を反応矢印の上下に入れる (文字が収まるように矢印を伸ばし、右側をずらす) */
+export function applyCondition(arrowId: Id, cond: { above: string; below: string }): void {
+  const d0 = doc();
+  const a = d0.objects[arrowId];
+  if (a?.type !== 'reaction') return;
+  let next = withObject(d0, { ...a, above: cond.above, below: cond.below });
+  const r = buildScene(next).reaction[arrowId];
+  const textW = Math.max(r.above.lines.length ? r.above.bbox.x2 - r.above.bbox.x1 : 0, r.below.lines.length ? r.below.bbox.x2 - r.below.bbox.x1 : 0);
+  const len = Math.hypot(a.x2 - a.x1, a.y2 - a.y1);
+  const need = Math.max(ACS.reactionArrowLength, textW + 10);
+  if (need > len + 0.5 && Math.abs(a.y2 - a.y1) < 1) {
+    const dx = need - len;
+    const right = Math.max(a.x1, a.x2), ay = (a.y1 + a.y2) / 2;
+    next = shiftRowRight(next, { x1: right + 0.5, y1: ay, y2: ay }, dx);
+    const cur = next.objects[arrowId] as ReactionArrow;
+    next = withObject(next, a.x2 >= a.x1 ? { ...cur, x2: cur.x2 + dx } : { ...cur, x1: cur.x1 + dx });
+  }
+  commit(next);
+  toast('反応条件を矢印に入れました (元に戻すで取り消せます)');
+}
+
 /** 反応式から反応機構 (曲がった矢印つき) を提案し、反応式の下に置く */
 export async function proposeMechanismForScheme(): Promise<void> {
   const d = doc();
-  const { findScheme, proposeMechanism } = await import('../chem/propose');
+  const { proposeMechanism } = await import('../chem/propose');
   const sc = findScheme(d, selectedReactionArrowId(d));
   if (!sc || !sc.left.length || !sc.right.length) {
     toast('反応矢印の左右に原料と生成物を描いてください (r 反応名 で置いた式でも使えます)', 'error');
@@ -846,7 +985,6 @@ export function typeCoefficientDigit(digit: string): boolean {
 /** 反応式の係数を自動で合わせる (原子の数と電荷の保存) */
 export async function balanceReactionCoefficients(): Promise<void> {
   const d = doc();
-  const { findScheme } = await import('../chem/propose');
   const sc = findScheme(d, selectedReactionArrowId(d));
   if (!sc || !sc.left.length || !sc.right.length) {
     toast('反応矢印の左右に原料と生成物を描いてください', 'error');
@@ -892,7 +1030,6 @@ async function nearReactions(name: string, partial?: NamedReaction): Promise<{ r
 
 /** 置く前の反応式の係数を合わせる。合わせられなければそのまま (有機反応は副生成物を省くことが多い) */
 async function autoBalance(frag: Doc): Promise<{ doc: Doc; note: string }> {
-  const { findScheme } = await import('../chem/propose');
   const sc = findScheme(frag);
   if (!sc) return { doc: frag, note: '' };
   const r = balanceScheme(frag, sc);

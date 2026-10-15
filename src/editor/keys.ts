@@ -2,13 +2,12 @@
 import { addTab, activeTab, getState, redo, setState, setTool, setView, toast, undo } from './store';
 import {
   applyArrowsToNext, autoLayoutScheme, cleanStructure, copySelection, cutSelection, deleteHovered, deleteSelected, hoverHotkey, nudgeSelection,
-  pasteFromClipboard, placeFragment, selectAll, typeCoefficientDigit,
+  pasteFromClipboard, selectAll, typeCoefficientDigit, duplicateSelection,
 } from './actions';
 import { selectionSize, emptySelection, selectedAtomIds } from '../model/edit';
 import { TOOL_KEYS } from '../ui/Toolbar';
 import { exportCurrent } from '../ui/TopBar';
 import { buildScene } from '../render/scene';
-import { exportTarget } from '../io/export';
 
 export function fitView(): void {
   const t = activeTab();
@@ -73,14 +72,10 @@ export function installKeys(): () => void {
           e.preventDefault();
           pasteFromClipboard();
           return;
-        case 'd': {
+        case 'd':
           e.preventDefault();
-          if (!selectionSize(s.selection)) return;
-          const frag = exportTarget(activeTab().doc, s.selection);
-          const b = buildScene(frag).bbox;
-          if (b) placeFragment(frag, { x: (b.x1 + b.x2) / 2 + 30, y: (b.y1 + b.y2) / 2 });
+          duplicateSelection();
           return;
-        }
         case 's':
           e.preventDefault();
           exportCurrent('project').catch((err: Error) => toast(err.message, 'error'));

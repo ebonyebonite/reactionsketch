@@ -42,6 +42,12 @@ export function tokenizeLabel(label: string): LabelUnit[] {
     i += matched.length;
     let count = '';
     while (i < label.length && /\d/.test(label[i])) count += label[i++];
+    // 水和物の「·5H2O」の 5 は係数 (下付きにしない)
+    if ((matched === '·' || matched === '•') && count) {
+      units.push({ text: matched, count: '', kind });
+      units.push({ text: count, count: '', kind: 'other' });
+      continue;
+    }
     units.push({ text: matched, count, kind });
   }
   return units;

@@ -14,11 +14,12 @@ import { docBodySvg } from '../render/svg';
 import { arcThrough, anchorPos, arrowHead, curvedEnds } from '../render/arrows';
 import { hitTest, itemsInRect, textAnchorAt } from '../editor/hit';
 import {
-  activeTab, cancelTransient, commit, endTransient, getState, setState, setView, updateTransient, useStore, type Hover,
+  activeTab, cancelTransient, commit, endTransient, getState, redo, setState, setView, toast, undo, updateTransient, useStore, type Hover,
 } from '../editor/store';
 import { addCompoundNumber } from '../editor/actions';
 import { defaultBend } from '../editor/arrowUtil';
 import { computeStereo } from '../chem/stereo';
+import { findScheme, horizontalArrows, schemeRegions, type SchemeRegion } from '../model/scheme';
 
 type Pt = { x: number; y: number };
 
@@ -57,6 +58,7 @@ export function Canvas() {
   const tool = useStore((s) => s.tool);
   const selection = useStore((s) => s.selection);
   const hover = useStore((s) => s.hover);
+  const showSchemes = useStore((s) => s.showSchemes);
   const doc = tab.doc;
   const view = tab.view;
   const scene = useMemo(() => buildScene(doc), [doc]);
@@ -84,6 +86,14 @@ export function Canvas() {
   const lastTouchAt = useRef(0);
   // Apple Pencil で描いている間は手のひらのタッチを無視する
   const penDown = useRef<number | null>(null);
+  // 複数指のジェスチャー (最初の指が触れてから全部の指が離れるまで)
+  const gesture = useRef<{ t0: number; max: number; starts: Map<number, Pt>; last: Map<number, Pt>; moved: number; view: { zoom: number; ox: number; oy: number } } | null>(null);
+  // 長押しでメニュー (タッチ・ペン)
+  const longPress = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
+  const clearLongPress = () => {
+    if (longPress.current) clearTimeout(longPress.current.timer);
+    longPress.current = null;
+  };
 
   const setD = (d: Drag) => {
     dragRef.current = d;
@@ -212,9 +222,36 @@ export function Canvas() {
     if (e.pointerType !== 'touch' || e.isPrimary) pointers.current.clear();
     if (e.pointerType === 'touch') pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const v = activeTab().view;
+    if (e.pointerType === 'touch') {
+      if (pointers.current.size === 1 || !gesture.current) gesture.current = { t0: performance.now(), max: 0, starts: new Map(), last: new Map(), moved: 0, view: { ...v } };
+      const g = gesture.current;
+      g.starts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      g.last.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      g.max = Math.max(g.max, pointers.current.size);
+    }
+    clearLongPress();
+    if (touchLike && pointers.current.size <= 1 && e.button === 0) {
+      const cx = e.clientX, cy = e.clientY;
+      longPress.current = {
+        x: cx, y: cy,
+        timer: setTimeout(() => {
+          longPress.current = null;
+          // 描きかけを取り消してメニューを出す
+          cancelTransient();
+          setD({ kind: 'none' });
+          gesture.current = null;
+          openContextMenu(cx, cy);
+        }, 550),
+      };
+    }
 
     if (pointers.current.size >= 2) {
-      if (pointers.current.size > 2) return;
+      if (pointers.current.size > 2) {
+        // 3 本指: 元に戻す・やり直すのジェスチャー。画面は動かさない
+        if (gesture.current) setView(gesture.current.view);
+        setD({ kind: 'none' });
+        return;
+      }
       // 2 本指: ピンチズーム / パン (描きかけは取り消す)
       cancelTransient();
       const [a, b] = [...pointers.current.values()];
@@ -395,6 +432,13 @@ export function Canvas() {
   const onPointerMove = (e: React.PointerEvent) => {
     if (e.pointerType === 'touch' && penDown.current !== null) return;
     if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const g = gesture.current;
+    const st = g?.starts.get(e.pointerId);
+    if (g && st) {
+      g.last.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      g.moved = Math.max(g.moved, Math.hypot(e.clientX - st.x, e.clientY - st.y));
+    }
+    if (longPress.current && Math.hypot(e.clientX - longPress.current.x, e.clientY - longPress.current.y) > 8) clearLongPress();
     const p = toDoc(e.clientX, e.clientY);
     setPointer(p);
     const dr = dragRef.current;
@@ -501,6 +545,15 @@ export function Canvas() {
       return;
     }
     pointers.current.delete(e.pointerId);
+    clearLongPress();
+    if (e.pointerType === 'touch' && pointers.current.size === 0 && gesture.current) {
+      const g = gesture.current;
+      gesture.current = null;
+      if (g.max >= 2 && finishMultiTouch(g)) {
+        setD({ kind: 'none' });
+        return;
+      }
+    }
     const dr = dragRef.current;
     const p = toDoc(e.clientX, e.clientY);
     const d = activeTab().doc;
@@ -513,23 +566,7 @@ export function Canvas() {
     switch (dr.kind) {
       case 'pan': {
         // 右クリック (ほとんど動かしていない) はメニュー、右ドラッグは画面の移動
-        if (dr.right && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < 5) {
-          const h = hitTest(d, buildScene(d), p.x, p.y, tol(10), { handlesFor: new Set() });
-          const target = h && h.kind !== 'handle' ? h : null;
-          // 右クリックしたものが選択されていなければ、それを選ぶ
-          if (target) {
-            const s = getState().selection;
-            const inSel = (target.kind === 'atom' && s.atoms.has(target.id)) || (target.kind === 'bond' && s.bonds.has(target.id)) || (target.kind === 'object' && s.objects.has(target.id));
-            if (!inSel) {
-              const one = emptySelection();
-              if (target.kind === 'atom') one.atoms.add(target.id);
-              if (target.kind === 'bond') one.bonds.add(target.id);
-              if (target.kind === 'object') one.objects.add(target.id);
-              setState({ selection: one });
-            }
-          }
-          setState({ contextMenu: { x: e.clientX, y: e.clientY, target, at: p } });
-        }
+        if (dr.right && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < 5) openContextMenu(e.clientX, e.clientY);
         return;
       }
       case 'rubber': {
@@ -739,6 +776,60 @@ export function Canvas() {
     setState({ editing: { kind: below ? 'below' : 'above', id, x: s.x, y: s.y, value: below ? o.below : o.above } });
   };
 
+  /** 右クリック・2 本指タップ・長押しのメニュー。指したものが選ばれていなければ、それを選ぶ */
+  const openContextMenu = (clientX: number, clientY: number, touch = false) => {
+    const d = activeTab().doc;
+    const p = toDoc(clientX, clientY);
+    const h = hitTest(d, buildScene(d), p.x, p.y, tol(touch ? 18 : 10), { handlesFor: new Set() });
+    const target = h && h.kind !== 'handle' ? h : null;
+    if (target) {
+      const s = getState().selection;
+      const inSel = (target.kind === 'atom' && s.atoms.has(target.id)) || (target.kind === 'bond' && s.bonds.has(target.id)) || (target.kind === 'object' && s.objects.has(target.id));
+      if (!inSel) {
+        const one = emptySelection();
+        if (target.kind === 'atom') one.atoms.add(target.id);
+        if (target.kind === 'bond') one.bonds.add(target.id);
+        if (target.kind === 'object') one.objects.add(target.id);
+        setState({ selection: one });
+      }
+    }
+    setState({ hover: null, contextMenu: { x: clientX, y: clientY, target, at: p } });
+  };
+
+  /**
+   * 複数指のタップ・スワイプ。処理したら true
+   *   2 本指タップ: メニュー (右クリックと同じ)
+   *   3 本指タップ / 左スワイプ: 元に戻す、3 本指右スワイプ: やり直す
+   */
+  const finishMultiTouch = (g: NonNullable<typeof gesture.current>): boolean => {
+    const dur = performance.now() - g.t0;
+    const tap = g.moved < 14 && dur < 500;
+    const ids = [...g.starts.keys()];
+    const avg = (m: Map<number, Pt>) => ({ x: ids.reduce((s, id) => s + (m.get(id)?.x ?? 0), 0) / ids.length, y: ids.reduce((s, id) => s + (m.get(id)?.y ?? 0), 0) / ids.length });
+    const a = avg(g.starts), b = avg(g.last);
+    if (g.max === 2 && tap) {
+      setView(g.view);
+      openContextMenu(a.x, a.y, true);
+      return true;
+    }
+    if (g.max >= 3) {
+      setView(g.view);
+      const dx = b.x - a.x, dy = b.y - a.y;
+      if (tap || (dx < -50 && Math.abs(dx) > Math.abs(dy))) {
+        undo();
+        toast('元に戻しました (3 本指タップ / 左スワイプ)');
+        return true;
+      }
+      if (dx > 50 && Math.abs(dx) > Math.abs(dy)) {
+        redo();
+        toast('やり直しました (3 本指右スワイプ)');
+        return true;
+      }
+      return true;
+    }
+    return false;
+  };
+
   const startEditingAt = (p: Pt) => {
     const d = activeTab().doc;
     const h = hitTest(d, buildScene(d), p.x, p.y, tol(12), {});
@@ -866,6 +957,21 @@ export function Canvas() {
       hoverEls.push(<line key="tb" x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="rgba(47,124,246,0.4)" strokeWidth={4.5} strokeLinecap="round" />);
     }
   }
+  // 反応式の範囲 (選んだ・指した反応矢印、または「常に表示」ですべての矢印)
+  const schemeEls = useMemo(() => {
+    const ids = new Set<Id>();
+    for (const id of selection.objects) if (doc.objects[id]?.type === 'reaction') ids.add(id);
+    if (hover?.kind === 'object' && doc.objects[hover.id]?.type === 'reaction') ids.add(hover.id);
+    if (showSchemes) for (const a of horizontalArrows(doc)) ids.add(a.id);
+    const els: JSX.Element[] = [];
+    for (const id of ids) {
+      const sc = findScheme(doc, id, scene);
+      if (!sc || sc.arrow.id !== id) continue;
+      for (const r of schemeRegions(doc, sc, scene)) els.push(regionEl(r, id, z));
+    }
+    return els;
+  }, [doc, scene, selection, hover, showSchemes, z]);
+
   // ハンドル
   const handleEls: JSX.Element[] = [];
   for (const id of handlesFor) {
@@ -926,6 +1032,7 @@ export function Canvas() {
         </defs>
         <rect x={0} y={0} width="100%" height="100%" fill="url(#grid)" />
         <g transform={`translate(${view.ox} ${view.oy}) scale(${z})`}>
+          <g>{schemeEls}</g>
           <g>{highlights}</g>
           <g dangerouslySetInnerHTML={{ __html: body }} />
           <g>{errors}</g>
@@ -935,6 +1042,33 @@ export function Canvas() {
         </g>
       </svg>
     </div>
+  );
+}
+
+const REGION_STYLE: Record<SchemeRegion['role'], { color: string; label: string }> = {
+  reactants: { color: '#0d9488', label: '原料' },
+  products: { color: '#ea580c', label: '生成物' },
+  reagents: { color: '#9333ea', label: '試薬' },
+  conditions: { color: '#9333ea', label: '試薬・条件' },
+};
+
+/** 反応式の範囲の枠と名札 (画面上の大きさが一定になるように zoom で割る) */
+function regionEl(r: SchemeRegion, arrowId: Id, z: number): JSX.Element {
+  const { color, label } = REGION_STYLE[r.role];
+  const pad = r.role === 'conditions' ? 1.5 : 4;
+  const x = r.box.x1 - pad, y = r.box.y1 - pad, w = r.box.x2 - r.box.x1 + pad * 2, h = r.box.y2 - r.box.y1 + pad * 2;
+  const fs = 10.5 / z;
+  const text = r.role === 'conditions' ? label : `${label}${r.count > 1 ? ` ${r.count}` : ''}`;
+  const tw = text.length * fs * 0.95 + 6 / z;
+  // 名札は枠の左上。矢印の上下の文字は、上に描いた試薬の名札と重ならないように枠の左下
+  const below = r.role === 'conditions';
+  const ty = below ? y + h + fs + 2 / z : y - 2 / z;
+  return (
+    <g key={`sc${arrowId}${r.role}`} className="scheme-region" pointerEvents="none">
+      <rect x={x} y={y} width={w} height={h} rx={3} fill={color} fillOpacity={0.05} stroke={color} strokeOpacity={0.75} strokeWidth={1.1 / z} strokeDasharray={`${5 / z} ${3 / z}`} />
+      <rect x={x} y={ty - fs - 1 / z} width={tw} height={fs + 4 / z} rx={2 / z} fill={color} fillOpacity={0.9} />
+      <text x={x + 3 / z} y={ty} fontSize={fs} fill="#fff" fontWeight={600} fontFamily="system-ui, sans-serif">{text}</text>
+    </g>
   );
 }
 

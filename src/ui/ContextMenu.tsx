@@ -1,10 +1,10 @@
 // 右クリックメニュー (原子・結合・矢印・空白ごとに、よく使う操作を出す)
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Atom, Bond, CurvedArrow, ReactionArrowKind } from '../model/types';
 import { expandToMolecules, updateAtom, updateBond, withObject } from '../model/edit';
-import { activeTab, commit, getState, setState, useStore } from '../editor/store';
+import { activeTab, commit, getState, redo, setState, undo, useStore } from '../editor/store';
 import {
-  addCompoundNumber, addRepeatBracket, alignReactionAtoms, balanceReactionCoefficients, setSelectedCoefficient, applyArrowsToNext, proposeMechanismForScheme, autoLayoutScheme, cleanStructure, copySelection, deleteSelected,
+  addCompoundNumber, addRepeatBracket, alignReactionAtoms, suggestConditionsForScheme, balanceReactionCoefficients, setSelectedCoefficient, applyArrowsToNext, proposeMechanismForScheme, autoLayoutScheme, cleanStructure, copySelection, deleteSelected, duplicateSelection, saltifySelected, splitIonicSelected, neutralizeSelected,
   flipSelection, pasteFromClipboard, polymerizeSelected, selectAll,
 } from '../editor/actions';
 import { exportCurrent } from './TopBar';
@@ -36,6 +36,12 @@ function Chips({ items }: { items: [string, () => void][] }) {
 
 export function ContextMenu() {
   const menu = useStore((s) => s.contextMenu);
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  // 実際の高さを測って、画面からはみ出さない位置に出す
+  useLayoutEffect(() => {
+    setHeight(ref.current?.offsetHeight ?? 0);
+  }, [menu]);
   useEffect(() => {
     if (!menu) return;
     const close = (e: Event) => {
@@ -52,9 +58,16 @@ export function ContextMenu() {
   if (!menu) return null;
   const d = activeTab().doc;
   const t = menu.target;
-  const left = Math.min(menu.x, window.innerWidth - 250);
-  const top = Math.min(menu.y, window.innerHeight - 360);
+  const left = Math.max(8, Math.min(menu.x, window.innerWidth - 310));
+  const top = Math.max(8, Math.min(menu.y, window.innerHeight - (height || 420) - 8));
   const sections: ReactNode[] = [];
+  // キーボードのないタッチ操作向けに、元に戻す・やり直すを先頭に
+  sections.push(
+    <div key="top" className="ctx-top">
+      <button className="mini" onClick={() => { setState({ contextMenu: null }); undo(); }}>↶ 元に戻す</button>
+      <button className="mini" onClick={() => { setState({ contextMenu: null }); redo(); }}>↷ やり直す</button>
+    </div>,
+  );
 
   const editLabel = (a: Atom) => {
     const v = activeTab().view;
@@ -115,6 +128,7 @@ export function ContextMenu() {
             setState({ editing: { kind: 'above', id: o.id, x: ((o.x1 + o.x2) / 2) * v.zoom + v.ox, y: ((o.y1 + o.y2) / 2 - 4) * v.zoom + v.oy, value: o.above } });
           }}>反応条件を入力</Item>
           <Item onClick={proposeMechanismForScheme}>反応機構を提案</Item>
+          <Item onClick={suggestConditionsForScheme}>反応条件・試薬・触媒を提案</Item>
           <Item onClick={alignReactionAtoms}>生成物の原子の位置を原料にそろえる</Item>
           <Item onClick={balanceReactionCoefficients}>係数を自動で合わせる</Item>
         </div>,
@@ -124,6 +138,10 @@ export function ContextMenu() {
   if (t && (t.kind === 'atom' || t.kind === 'bond')) {
     const atomId = t.kind === 'atom' ? t.id : d.bonds[t.id]?.a1;
     // 右クリックした分子 (選択中の分子の上なら、選択中の分子すべて) に係数を書く
+    const withMol = (fn: () => void) => {
+      setState({ selection: expandToMolecules(d, getState().selection) });
+      fn();
+    };
     const coefFor = (v: string) => {
       const s = getState().selection;
       const onSel = t.kind === 'atom' ? s.atoms.has(t.id) : s.bonds.has(t.id);
@@ -136,6 +154,8 @@ export function ContextMenu() {
         <Item onClick={() => setState({ selection: expandToMolecules(d, getState().selection) })}>分子全体を選択</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); cleanStructure(); }} kbd="Ctrl+Shift+K">構造を整える</Item>
         <Item onClick={() => atomId && addCompoundNumber(atomId)}>化合物番号を付ける</Item>
+        <div className="ctx-sub">塩</div>
+        <Chips items={[['Na 塩', () => withMol(() => saltifySelected('Na'))], ['K 塩', () => withMol(() => saltifySelected('K'))], ['塩酸塩', () => withMol(() => saltifySelected('Cl'))], ['イオンに分ける', () => withMol(splitIonicSelected)], ['中性に戻す', () => withMol(neutralizeSelected)]]} />
         <div className="ctx-sub">係数 (分子の前の数字)</div>
         <Chips items={[...['1', '2', '3', '4', '5', '6'].map((n) => [n, () => coefFor(n)] as [string, () => void]), ['…', () => {
           const v = window.prompt('係数 (例: 2, 1/2。空で消す)', '');
@@ -152,6 +172,7 @@ export function ContextMenu() {
       <div key="common">
         <hr />
         <Item onClick={() => { copySelection(); exportCurrent('copy-png'); }} kbd="Ctrl+C">コピー (PNG も)</Item>
+        <Item onClick={duplicateSelection} kbd="Ctrl+D">複製</Item>
         <Item onClick={deleteSelected} kbd="Delete">削除</Item>
       </div>,
     );
@@ -160,6 +181,7 @@ export function ContextMenu() {
       <div key="empty">
         <Item onClick={() => pasteFromClipboard(menu.at)} kbd="Ctrl+V">ここに貼り付け</Item>
         <Item onClick={selectAll} kbd="Ctrl+A">すべて選択</Item>
+        <Item onClick={() => setState({ saltOpen: true })}>塩・イオンを作る…</Item>
         <Item onClick={autoLayoutScheme} kbd="Ctrl+L">反応式を並べる</Item>
         <Item onClick={applyArrowsToNext} kbd="Ctrl+Enter">矢印を適用して次の構造</Item>
         <Item onClick={() => exportCurrent('copy-png')}>全体を PNG でコピー</Item>
@@ -167,7 +189,7 @@ export function ContextMenu() {
     );
   }
   return (
-    <div className="ctx-menu menu-pop" style={{ left, top, position: 'fixed' }} role="menu">
+    <div ref={ref} className="ctx-menu menu-pop" style={{ left, top, position: 'fixed' }} role="menu">
       {sections}
     </div>
   );

@@ -64,7 +64,7 @@ export function setCoefficient(d: Doc, comp: Id[], value: number | string, makeR
 }
 
 /** box と同じ行で、box の左端より右にあるもの (box の分子を含む) を dx 動かす */
-function shiftRowRight(d: Doc, box: { x1: number; y1: number; y2: number }, dx: number): Doc {
+export function shiftRowRight(d: Doc, box: { x1: number; y1: number; y2: number }, dx: number): Doc {
   const cy = (box.y1 + box.y2) / 2;
   const inRow = (x: number, y: number) => x >= box.x1 - 0.5 && Math.abs(y - cy) < 60;
   const scene = buildScene(d);
@@ -105,6 +105,27 @@ export function schemeSpecies(d: Doc, scheme: { arrow: ReactionArrow; left: Id[]
   return { left: group(scheme.left), right: group(scheme.right) };
 }
 
+/** まとまり (＋で区切られた物質) の中の各成分の数 (最大公約数で割る: 2Ca²⁺ 4Cl⁻ → 1 : 2) */
+function groupCounts(d: Doc, g: Id[][]): number[] | null {
+  const cs = g.map((c) => coefficientOf(d, c));
+  if (cs.some((c) => c === null || !Number.isInteger(c))) return cs.every((c) => c !== null) && g.length === 1 ? [1] : null;
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  const k = (cs as number[]).reduce((a, b) => gcd(a, b));
+  return (cs as number[]).map((c) => c / k);
+}
+
+/** まとまりの元素の数と電荷 */
+function groupSpecies(d: Doc, g: Id[][], counts: number[]): Species | null {
+  const out: Species = { counts: {}, charge: 0 };
+  for (const [i, c] of g.entries()) {
+    const s = speciesOf(d, c);
+    if (!s) return null;
+    for (const [e, n] of Object.entries(s.counts)) out.counts[e] = (out.counts[e] ?? 0) + n * counts[i];
+    out.charge += s.charge * counts[i];
+  }
+  return out;
+}
+
 export type BalanceResult = { doc: Doc; left: number[]; right: number[]; changed: boolean } | { error: string };
 
 /** 反応式の係数を自動で合わせる */
@@ -112,13 +133,18 @@ export function balanceScheme(d: Doc, scheme: { arrow: ReactionArrow; left: Id[]
   const sp = schemeSpecies(d, scheme);
   if (!sp.left.length || !sp.right.length) return { error: '反応矢印の左右に原料と生成物を描いてください' };
   const all = [...sp.left, ...sp.right];
-  const species = all.map((g) => speciesOf(d, g.flat()));
+  // ＋なしで並んだイオン (Ca²⁺ 2Cl⁻) は、それぞれの数を組成として数える
+  const base = all.map((g) => groupCounts(d, g));
+  if (base.some((b) => !b)) return { error: '分子の前に数字でない文字があるため、係数を計算できません' };
+  const species = all.map((g, i) => groupSpecies(d, g, base[i]!));
   if (species.some((s) => !s)) return { error: '化学式として読めない略号・文字があるため、係数を計算できません' };
   const coefs = balanceSpecies(species as Species[], sp.left.length);
   if (!coefs) return { error: '原子の数を左右で合わせられませんでした。副生成物 (H2O・HCl など) が書かれていないかもしれません' };
   let next = d;
   all.forEach((g, i) => {
-    next = setCoefficient(next, g[0], coefs[i]);
+    g.forEach((c, j) => {
+      next = setCoefficient(next, c, coefs[i] * base[i]![j]);
+    });
   });
   return { doc: next, left: coefs.slice(0, sp.left.length), right: coefs.slice(sp.left.length), changed: next !== d };
 }
@@ -144,7 +170,7 @@ export function displayFormula(counts: Record<string, number>): string {
 /** 係数つきの反応式の文字列 (2 H2 + O2 → 2 H2O) */
 export function equationText(d: Doc, groups: { left: Id[][][]; right: Id[][][] }, coefs: { left: number[]; right: number[] }): string {
   const side = (gs: Id[][][], cs: number[]) => gs.map((g, i) => {
-    const s = speciesOf(d, g.flat());
+    const s = groupSpecies(d, g, groupCounts(d, g) ?? g.map(() => 1));
     const f = s ? displayFormula(s.counts) + (s.charge ? (Math.abs(s.charge) > 1 ? Math.abs(s.charge) : '') + (s.charge > 0 ? '+' : '−') : '') : '?';
     return (cs[i] !== 1 ? `${cs[i]} ` : '') + f;
   }).join(' + ');

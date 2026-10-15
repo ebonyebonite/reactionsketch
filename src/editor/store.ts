@@ -2,6 +2,7 @@
 import { useSyncExternalStore } from 'react';
 import { emptyDoc, newId, type Doc, type Id, type Project, type ReactionArrowKind } from '../model/types';
 import { emptySelection, type Selection } from '../model/edit';
+import type { Condition } from '../chem/conditions';
 
 export type Tool =
   | { kind: 'select' }
@@ -63,6 +64,51 @@ export interface AppState {
   helpOpen: boolean;
   reagentsOpen: boolean;
   contextMenu: { x: number; y: number; target: Hover | null; at: { x: number; y: number } } | null;
+  /** 反応式の範囲 (原料・生成物・試薬の枠) を、矢印を選んでいなくても表示する */
+  showSchemes: boolean;
+  /** 塩を作るダイアログ */
+  saltOpen: boolean;
+  /** 塩の描き方 (イオンに分ける / 化学式 1 つ) と、多原子イオンを構造式で描くか */
+  saltStyle: 'ionic' | 'formula';
+  saltStructure: boolean;
+  /** 反応条件の提案 (反応矢印ごと) */
+  conditionSuggestions: { arrowId: Id; items: Condition[]; message?: string } | null;
+}
+
+const PREF_SCHEMES = 'reactionsketch.showSchemes';
+function loadPref(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+const PREF_SALT = 'reactionsketch.saltStyle';
+function loadSaltPref(): { saltStyle: 'ionic' | 'formula'; saltStructure: boolean } {
+  try {
+    const v = JSON.parse(localStorage.getItem(PREF_SALT) ?? '{}') as { style?: string; structure?: boolean };
+    return { saltStyle: v.style === 'formula' ? 'formula' : 'ionic', saltStructure: !!v.structure };
+  } catch {
+    return { saltStyle: 'ionic', saltStructure: false };
+  }
+}
+export function saveSaltPref(p: { saltStyle?: 'ionic' | 'formula'; saltStructure?: boolean }): void {
+  setState(p);
+  const s = getState();
+  try {
+    localStorage.setItem(PREF_SALT, JSON.stringify({ style: s.saltStyle, structure: s.saltStructure }));
+  } catch {
+    /* 保存できなくても切り替える */
+  }
+}
+
+export function saveShowSchemes(on: boolean): void {
+  setState({ showSchemes: on });
+  try {
+    localStorage.setItem(PREF_SCHEMES, on ? '1' : '0');
+  } catch {
+    /* 保存できなくても表示は切り替える */
+  }
 }
 
 const STORAGE_KEY = 'reactionsketch.project.v1';
@@ -99,6 +145,10 @@ function loadInitial(): AppState {
   return {
     tabs, activeId, tool: { kind: 'bond', order: 1, stereo: 'none' }, selection: emptySelection(), hover: null, editing: null, toast: null,
     panelOpen: typeof window !== 'undefined' ? window.innerWidth > 900 : true, busy: null, helpOpen: false, reagentsOpen: false, contextMenu: null,
+    showSchemes: loadPref(PREF_SCHEMES),
+    saltOpen: false,
+    conditionSuggestions: null,
+    ...loadSaltPref(),
   };
 }
 

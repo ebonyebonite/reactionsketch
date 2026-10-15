@@ -1,8 +1,9 @@
 // 上部バー: 構造の検索・ファイル・書き出し・編集操作
 import { useEffect, useRef, useState } from 'react';
 import { activeTab, addTab, getState, redo, setState, toast, toProject, undo, useStore } from '../editor/store';
-import { addReactionFromQuery, addStructureFromQuery, alignReactionAtoms, balanceReactionCoefficients, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment, proposeMechanismForScheme } from '../editor/actions';
+import { addReactionFromQuery, addStructureFromQuery, alignReactionAtoms, balanceReactionCoefficients, applyArrowsToNext, autoLayoutScheme, cleanStructure, placeFragment, proposeMechanismForScheme, suggestConditionsForScheme } from '../editor/actions';
 import { suggestDictionary } from '../chem/dictionary';
+import { saltFormula, saltNameJa, suggestSalts } from '../chem/salts';
 import { fuzzyReactions, reactionQuery, reactionsWithReagent, searchReactions } from '../chem/reactions';
 import { copyPng, exportTarget, isEmpty, projectBlob, renderPdf, renderPng, safeFilename, saveBlob, svgString, cdxmlString, copyText } from '../io/export';
 import { openFiles } from '../io/open';
@@ -24,7 +25,11 @@ export function SearchBox() {
   const sugg: { name: string; alt: string; submit: string }[] = rq !== null
     ? (/->|→|>|=>|⇒/.test(rq) ? [] : reactionSuggestions(rq))
     : q.trim()
-      ? suggestDictionary(q, 8).map((s) => ({ name: s.name, alt: s.entry.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: s.name }))
+      ? [
+        // 塩 (イオンの組で描く) を先に
+        ...suggestSalts(q, 3).map((s) => ({ name: saltNameJa(s), alt: `塩 ${saltFormula(s)}`, submit: saltNameJa(s) })),
+        ...suggestDictionary(q, 8).map((s) => ({ name: s.name, alt: s.entry.names.filter((n) => n !== s.name).slice(0, 2).join(' / '), submit: s.name })),
+      ].filter((s, i, arr) => arr.findIndex((x) => x.name === s.name) === i).slice(0, 8)
       : [];
 
   useEffect(() => {
@@ -229,6 +234,7 @@ export function TopBar() {
         <button className="top-btn wide-only" onClick={autoLayoutScheme} title="反応式を自動で並べる (Ctrl+L)">{Icons.layout}<span className="lbl">整列</span></button>
         <button className="top-btn wide-only" onClick={applyArrowsToNext} title="曲がった矢印を適用して次の構造を作る (Ctrl+Enter)。選んだ矢印だけにも適用できます">{Icons.next}<span className="lbl">次の構造</span></button>
         <button className="top-btn wide-only" onClick={proposeMechanismForScheme} title="反応式 (原料 → 生成物) から反応機構を提案して、下に置く">{Icons.next}<span className="lbl">機構を提案</span></button>
+        <button className="top-btn wide-only" onClick={suggestConditionsForScheme} title="反応式 (原料 → 生成物) から反応条件・試薬・触媒の候補を出す">{Icons.table}<span className="lbl">条件を提案</span></button>
         <button className="top-btn wide-only" onClick={() => setState({ reagentsOpen: true })} title="試薬表・収率計算">{Icons.table}<span className="lbl">試薬表</span></button>
         <button className="top-btn primary" onClick={run(() => exportCurrent('copy-png'))} title="PNG をコピー (Ctrl+C)">{Icons.copy}<span className="lbl">PNG コピー</span></button>
         <Menu label="ファイル" icon={Icons.save}>
@@ -245,6 +251,8 @@ export function TopBar() {
           <MenuItem onClick={run(() => exportCurrent('copy-smiles'))}>SMILES をコピー</MenuItem>
         </Menu>
         <Menu label="テンプレート" icon={Icons.chairIcon}>
+          <MenuItem onClick={() => setState({ saltOpen: true })}>塩・イオンを作る…</MenuItem>
+          <hr />
           {TEMPLATES.map((t) => (
             <MenuItem key={t.name} onClick={() => placeFragment(t.build())}>{t.name}</MenuItem>
           ))}
@@ -272,9 +280,11 @@ export function TopBar() {
           <MenuItem onClick={autoLayoutScheme} kbd="Ctrl+L">反応式を自動で並べる</MenuItem>
           <MenuItem onClick={applyArrowsToNext} kbd="Ctrl+Enter">次の構造を作る</MenuItem>
           <MenuItem onClick={proposeMechanismForScheme}>反応機構を提案</MenuItem>
+          <MenuItem onClick={suggestConditionsForScheme}>反応条件・試薬・触媒を提案</MenuItem>
           <MenuItem onClick={alignReactionAtoms}>反応前後の原子の位置をそろえる</MenuItem>
           <MenuItem onClick={balanceReactionCoefficients}>反応式の係数を合わせる</MenuItem>
           <MenuItem onClick={() => setState({ reagentsOpen: true })}>試薬表・収率計算</MenuItem>
+          <MenuItem onClick={() => setState({ saltOpen: true })}>塩・イオンを作る</MenuItem>
           <hr />
           <MenuItem onClick={() => setState({ helpOpen: true })}>使い方</MenuItem>
         </Menu>

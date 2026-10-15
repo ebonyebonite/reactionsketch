@@ -137,7 +137,7 @@ kbd {
 
 .stage { position: relative; flex: 1; min-width: 0; }
 .canvas-host { position: absolute; inset: 0; background: var(--paper); overflow: hidden; }
-.canvas { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+.canvas { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 
 /* キャンバス上の文字入力 */
 .text-editor { position: absolute; z-index: 20; }
@@ -164,6 +164,8 @@ kbd {
 .row { display: flex; align-items: center; gap: 6px; margin: 5px 0; flex-wrap: wrap; }
 .row .k { min-width: 64px; color: var(--muted); font-size: 12px; }
 .row.check, label.check { gap: 6px; cursor: pointer; font-size: 13px; }
+.row.check { flex-wrap: nowrap; align-items: flex-start; }
+.row.check input[type=checkbox] { margin-top: 2px; flex: none; }
 .mini {
   display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; min-height: 26px;
   border: 1px solid var(--border); background: var(--panel-2); border-radius: 6px; cursor: pointer; font-size: 12.5px;
@@ -315,7 +317,7 @@ kbd {
 
 /* 中くらいの幅ではボタンの文字を隠してはみ出しを防ぐ */
 /* (iPad 縦・横向きのスマホも含む。使う頻度の低いボタンは「その他」にまとめる) */
-@media (max-width: 1240px), (pointer: coarse) and (max-width: 1400px) {
+@media (max-width: 1440px), (pointer: coarse) and (max-width: 1440px) {
   .top-btn .lbl { display: none; }
   .wide-only { display: none; }
   .narrow-only { display: block; }
@@ -353,9 +355,45 @@ table.reagents select, .cell {
 .cell:disabled { opacity: 0.4; }
 .ro { font-variant-numeric: tabular-nums; padding: 0 5px; }
 td.yield { white-space: nowrap; font-weight: 600; }
-.ctx-menu { right: auto; min-width: 240px; max-width: 300px; z-index: 80; }
+.ctx-menu { right: auto; min-width: 240px; max-width: 300px; z-index: 80; max-height: calc(100vh - 16px); overflow-y: auto; }
+.ctx-top { display: flex; gap: 4px; padding: 4px 6px 2px; }
+.ctx-top .mini { flex: 1; }
+@media (pointer: coarse) { .ctx-menu .menu-item { min-height: 40px; } .ctx-chips .mini, .ctx-top .mini { min-height: 34px; min-width: 34px; } }
 .ctx-title { font-size: 11px; font-weight: 650; color: var(--muted); padding: 6px 10px 2px; letter-spacing: 0.04em; }
 .ctx-sub { font-size: 11px; color: var(--muted); padding: 4px 10px 0; }
 .ctx-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px; }
 .ctx-chips .mini { min-height: 24px; padding: 2px 7px; }
 .ctx-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+
+/* 反応式の範囲の内訳 (反応矢印のパネル) */
+.scheme-summary { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 8px 0 4px; }
+.scheme-summary .chip { font-size: 11.5px; font-weight: 600; color: #fff; border-radius: 4px; padding: 1px 7px; }
+.scheme-summary .chip.reactants { background: #0d9488; }
+.scheme-summary .chip.products { background: #ea580c; }
+.scheme-summary .chip.reagents { background: #9333ea; }
+.scheme-summary .tip { flex-basis: 100%; margin-top: 2px; }
+.scheme-summary.warn .tip { color: #e5484d; }
+
+/* 塩を作る */
+.salt-dialog { width: min(640px, 100%); }
+.salt-dialog h3 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); }
+.ion-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ion-chips .mini { min-width: 44px; font-size: 14px; }
+.ion sub, .formula sub { font-size: 0.72em; }
+.ion sup { font-size: 0.72em; }
+.salt-preview { margin: 12px 0 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2, rgba(127,127,127,0.06)); }
+.salt-preview .big { font-size: 22px; font-weight: 600; }
+.row.end { justify-content: flex-end; }
+.tip.warn { color: #e5484d; }
+
+/* 反応条件の提案 */
+.cond-suggest { margin: 6px 0; }
+.cond-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.cond-list li { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; font-size: 12.5px; }
+.cond-title { display: flex; justify-content: space-between; gap: 6px; font-weight: 600; margin-bottom: 3px; }
+.cond-src { font-weight: 400; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cond-line { display: flex; gap: 6px; line-height: 1.5; }
+.cond-line .k { min-width: 58px; color: var(--muted); font-size: 11.5px; }
+.cond-line .v { display: flex; flex-direction: column; }
+.cond-note { color: var(--muted); font-size: 11.5px; margin: 2px 0; }
+.cond-list .mini { margin-top: 4px; }

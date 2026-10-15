@@ -620,41 +620,8 @@ async function layoutStates(raw: Doc[], maps: Map<Id, Id>[], backward: boolean):
 
 // ---- 描いた反応式から ----
 
-export interface Scheme {
-  arrow: ReactionArrow;
-  left: Id[][];
-  right: Id[][];
-  /** 矢印の上下に構造式で描いた試薬 */
-  reagents: Id[][];
-}
-
-/** 反応矢印の左右の分子 (同じ行で、隣の矢印までのもの) */
-export function findScheme(d: Doc, arrowId?: Id): Scheme | null {
-  const arrows = d.order.map((id) => d.objects[id]).filter((o): o is ReactionArrow => o?.type === 'reaction' && Math.abs(o.x2 - o.x1) > Math.abs(o.y2 - o.y1) && o.kind !== 'resonance');
-  const arrow = arrows.find((a) => a.id === arrowId) ?? arrows[0];
-  if (!arrow) return null;
-  const scene = buildScene(d);
-  const ax1 = Math.min(arrow.x1, arrow.x2), ax2 = Math.max(arrow.x1, arrow.x2), ay = (arrow.y1 + arrow.y2) / 2;
-  const sameRow = arrows.filter((a) => a.id !== arrow.id && Math.abs((a.y1 + a.y2) / 2 - ay) < 40);
-  const leftLimit = Math.max(-Infinity, ...sameRow.filter((a) => Math.max(a.x1, a.x2) <= ax1).map((a) => Math.max(a.x1, a.x2)));
-  const rightLimit = Math.min(Infinity, ...sameRow.filter((a) => Math.min(a.x1, a.x2) >= ax2).map((a) => Math.min(a.x1, a.x2)));
-  const left: Id[][] = [], right: Id[][] = [], reagents: Id[][] = [];
-  for (const c of components(d)) {
-    const b = componentBox(d, c, scene.layouts);
-    const cx = (b.x1 + b.x2) / 2, cy = (b.y1 + b.y2) / 2;
-    // 矢印の真上・真下の分子は試薬
-    if (cx >= ax1 - 4 && cx <= ax2 + 4 && Math.abs(cy - ay) < 110 && (b.y2 < ay + 2 || b.y1 > ay - 2)) {
-      reagents.push(c);
-      continue;
-    }
-    if (cy < ay - 60 || cy > ay + 60 || b.y2 < ay - 50 || b.y1 > ay + 50) continue;
-    if (cx < ax1 && cx > leftLimit) left.push(c);
-    else if (cx > ax2 && cx < rightLimit) right.push(c);
-  }
-  const dir = arrow.x2 >= arrow.x1 ? 1 : -1;
-  if (dir < 0) return { arrow, left: right, right: left, reagents };
-  return { arrow, left, right, reagents };
-}
+export { findScheme, type Scheme } from '../model/scheme';
+import type { Scheme } from '../model/scheme';
 
 /** 生成物の向き・原子の位置を原料にそろえる */
 export async function alignSchemeProducts(d: Doc, scheme: Scheme): Promise<Doc> {

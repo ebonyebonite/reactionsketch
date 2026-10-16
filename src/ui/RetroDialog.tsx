@@ -3,29 +3,7 @@ import { useEffect, useState } from 'react';
 import { setState, toast, useStore } from '../editor/store';
 import { drawRetrosynthesis } from '../editor/actions';
 import { retrosynthesis, type RetroCandidate } from '../chem/retro';
-import { structureFromText } from '../chem/rdkit';
-import { buildScene } from '../render/scene';
-import { docBodySvg } from '../render/svg';
-
-/** SMILES の小さな構造図 */
-function Thumb({ smiles }: { smiles: string }) {
-  const [svg, setSvg] = useState<{ body: string; box: string } | null>(null);
-  useEffect(() => {
-    let alive = true;
-    structureFromText(smiles)
-      .then((d) => {
-        const b = buildScene(d).bbox ?? { x1: 0, y1: 0, x2: 10, y2: 10 };
-        const m = 6;
-        if (alive) setSvg({ body: docBodySvg(d), box: `${b.x1 - m} ${b.y1 - m} ${b.x2 - b.x1 + 2 * m} ${b.y2 - b.y1 + 2 * m}` });
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [smiles]);
-  if (!svg) return <span className="thumb loading">{smiles}</span>;
-  return <svg className="thumb" viewBox={svg.box} role="img" aria-label={smiles}><g dangerouslySetInnerHTML={{ __html: svg.body }} /></svg>;
-}
+import { Thumb } from './Thumb';
 
 export function RetroDialog() {
   const target = useStore((s) => s.retroFor);

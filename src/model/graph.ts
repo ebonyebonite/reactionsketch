@@ -1,5 +1,5 @@
 // 分子グラフの基本操作 (隣接・環・連結成分・暗黙の水素・原子価チェック)
-import type { Atom, Bond, Doc, Id } from './types';
+import { isNonCovalent, type Atom, type Bond, type Doc, type Id } from './types';
 import { ELEMENTS, valencesFor } from './elements';
 
 export interface Neighbor {
@@ -50,8 +50,9 @@ export function bondBetween(doc: Doc, a: Id, b: Id): Bond | undefined {
   return neighbors(doc, a).find((n) => n.atom.id === b)?.bond;
 }
 
+/** 共有結合の次数の和 (部分結合・水素結合・配位結合は数えない) */
 export function bondOrderSum(doc: Doc, atomId: Id): number {
-  return neighbors(doc, atomId).reduce((s, n) => s + n.bond.order, 0);
+  return neighbors(doc, atomId).reduce((s, n) => s + (isNonCovalent(n.bond) ? 0 : n.bond.stereo === 'dashed' && n.bond.order === 2 ? 1.5 : n.bond.order), 0);
 }
 
 /** 結合を含む最小の環 (原子 ID の順序付きリスト)。環に含まれなければ null */
@@ -130,7 +131,7 @@ export function implicitH(doc: Doc, atom: Atom): number {
   const vals = valencesFor(atom.element, atom.charge);
   // 金属などは暗黙の水素を付けない
   if (!['B', 'C', 'N', 'O', 'P', 'S', 'F', 'Cl', 'Br', 'I', 'Si', 'Se', 'Ge', 'As', 'Te'].includes(atom.element)) return 0;
-  for (const v of vals) if (used <= v) return v - used;
+  for (const v of vals) if (used <= v) return Math.floor(v - used);
   return 0;
 }
 

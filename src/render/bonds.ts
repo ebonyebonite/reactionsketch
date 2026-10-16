@@ -167,6 +167,21 @@ export function bondShapes(doc: Doc, bond: Bond, layouts: Record<Id, AtomLayout>
       }
       case 'bold':
         return [line(P, Q, ACS.boldWidth)];
+      case 'dashed':
+        return [dashedPath(P, Q, 1.9, 1.5)];
+      case 'hbond':
+        return [dashedPath(P, Q, 0.7, 1.3)];
+      case 'hollow': {
+        const hw = ACS.wedgeWidth / 2;
+        const p1 = add(Q, mul(n, hw)), p2 = sub(Q, mul(n, hw));
+        return [{ kind: 'path', d: `M${P.x.toFixed(2)} ${P.y.toFixed(2)} L${p1.x.toFixed(2)} ${p1.y.toFixed(2)} L${p2.x.toFixed(2)} ${p2.y.toFixed(2)}Z`, w: lw }];
+      }
+      case 'dative': {
+        // a1 → a2 の向きの矢印 (配位結合)
+        const hl = 3.6, hw2 = 1.4;
+        const tip = Q, back = sub(Q, mul(u, hl));
+        return [line(P, add(back, mul(u, 0.8))), { kind: 'poly', points: [[tip.x, tip.y], [back.x + n.x * hw2, back.y + n.y * hw2], [back.x - n.x * hw2, back.y - n.y * hw2]] }];
+      }
       default:
         return [line(P, Q)];
     }
@@ -178,15 +193,33 @@ export function bondShapes(doc: Doc, bond: Bond, layouts: Record<Id, AtomLayout>
     return [line(P, Q), line(p1, q1), line(p2, q2)];
   }
 
-  // 二重結合
+  // 二重結合 (dashed は 2 本目を破線にした部分二重結合)
+  const partial = bond.stereo === 'dashed';
+  const second = (p: Pt, q: Pt) => (partial ? dashedPath(p, q, 1.9, 1.5) : line(p, q));
   const side = doubleBondSide(doc, bond, layouts);
   if (side === 0) {
     const [p1, q1] = clippedSegment(A, B, mul(n, sp / 2), la, lb);
     const [p2, q2] = clippedSegment(A, B, mul(n, -sp / 2), la, lb);
-    return [line(p1, q1), line(p2, q2)];
+    return [line(p1, q1), second(p2, q2)];
   }
   const off = mul(n, sp * side);
   const p2 = innerEnd(doc, { ...A, id: A.id }, B, off, side, la);
   const q2 = innerEnd(doc, { ...B, id: B.id }, A, off, -side, lb);
-  return [line(P, Q), line(p2, q2)];
+  return [line(P, Q), second(p2, q2)];
+}
+
+/** 破線 (dash の長さと間隔) を 1 本のパスで */
+function dashedPath(P: Pt, Q: Pt, dash: number, gap: number): BondShape {
+  const L = len(sub(Q, P));
+  const u = norm(sub(Q, P));
+  const n = Math.max(1, Math.round((L + gap) / (dash + gap)));
+  // 両端が線で終わるように間隔を調整
+  const g = n > 1 ? (L - n * dash) / (n - 1) : 0;
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const a = add(P, mul(u, i * (dash + g)));
+    const b = add(a, mul(u, dash));
+    d += `M${a.x.toFixed(2)} ${a.y.toFixed(2)}L${b.x.toFixed(2)} ${b.y.toFixed(2)}`;
+  }
+  return { kind: 'path', d, w: ACS.lineWidth };
 }

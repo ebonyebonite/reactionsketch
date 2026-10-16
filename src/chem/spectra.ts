@@ -4,6 +4,7 @@
 //   ¹H は Shoolery 型の α・β 置換基の増分、芳香環・アルケンは置換基の o/m/p・gem/cis/trans 増分、
 //   ¹³C は Grant–Paul 式 + 置換基の増分、芳香環・アルケンは置換基の増分。実測値とは数 ppm 違うことがある。
 import { loadRDKit } from './rdkit';
+import { esol, fragments, joback, type Fragment, type JobackResult } from './estimate';
 
 // ---- 分子のグラフ ----
 
@@ -825,6 +826,8 @@ export interface Spectra {
   carbon: CarbonPeak[];
   ir: IrBand[];
   isotopes: { mz: number; rel: number }[];
+  /** 推算物性 (Joback・ESOL) と MS のフラグメント */
+  est: { joback: JobackResult | null; logS: number | null; fragments: Fragment[] };
 }
 
 /** 1 つの分子 (Molfile) の物性とスペクトルの予測 */
@@ -836,6 +839,7 @@ export async function predictAll(molblock: string, counts: Record<string, number
     carbon: predictCarbon(g),
     ir: await predictIR(molblock),
     isotopes: isotopePattern(counts, charge),
+    est: { joback: joback(g), logS: desc.CrippenClogP !== undefined ? esol(desc, g) : null, fragments: fragments(g) },
   };
 }
 

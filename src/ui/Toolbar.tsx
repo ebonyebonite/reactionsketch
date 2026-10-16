@@ -1,6 +1,8 @@
 // 左側のツールバー
-import type { JSX } from 'react';
-import { setTool, useStore, type Tool } from '../editor/store';
+import { useEffect, useRef, useState, type JSX } from 'react';
+import { setState, setTool, useStore, type Tool } from '../editor/store';
+import { SHAPES } from '../render/shapes';
+import type { BondStereo } from '../model/types';
 import { Icons } from './icons';
 
 interface ToolDef {
@@ -14,6 +16,7 @@ const GROUPS: ToolDef[][] = [
   [
     { tool: { kind: 'select' }, icon: Icons.select, label: '選択・移動', key: 'V' },
     { tool: { kind: 'eraser' }, icon: Icons.eraser, label: '消しゴム', key: 'E' },
+    { tool: { kind: 'lasso' }, icon: Icons.lasso, label: '投げ縄選択 (囲んだものを選ぶ)', key: 'L' },
   ],
   [
     { tool: { kind: 'bond', order: 1, stereo: 'none' }, icon: Icons.single, label: '単結合 (結合をクリックで次数を上げる)', key: '1' },
@@ -53,6 +56,11 @@ const GROUPS: ToolDef[][] = [
     { tool: { kind: 'bracket', shape: 'round' }, icon: Icons.round, label: '丸括弧' },
   ],
   [
+    { tool: { kind: 'shape', shape: 'rect' }, icon: Icons.rect, label: '四角 (ドラッグ。Shift で正方形)' },
+    { tool: { kind: 'shape', shape: 'ellipse' }, icon: Icons.ellipse, label: '楕円 (ドラッグ。Shift で円)' },
+    { tool: { kind: 'shape', shape: 'arrow' }, icon: Icons.lineArrow, label: '矢印 (図の説明用)' },
+  ],
+  [
     { tool: { kind: 'atomprop', prop: 'plus' }, icon: Icons.chargePlus, label: '正電荷 (原子をクリック)' },
     { tool: { kind: 'atomprop', prop: 'minus' }, icon: Icons.chargeMinus, label: '負電荷 (原子をクリック)' },
     { tool: { kind: 'atomprop', prop: 'lonepair' }, icon: Icons.lonepair, label: '非共有電子対 (クリックで 0→1→2→3)' },
@@ -69,8 +77,62 @@ function same(a: Tool, b: Tool): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+const BOND_TOOLS: [BondStereo, string][] = [['dashed', '破線 (部分結合・遷移状態)'], ['hbond', '水素結合 (点線)'], ['dative', '配位結合 (→)'], ['hollow', '中抜きくさび'], ['bold', '太線']];
+
+/** 器具・軌道・TLC・エネルギー図などの一覧 */
+function ShapePalette({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const close = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [onClose]);
+  const pick = (t: Tool) => {
+    setTool(t);
+    onClose();
+  };
+  const W = 300;
+  const left = Math.max(8, Math.min(anchor.right + 6, window.innerWidth - W - 8));
+  const top = Math.max(8, Math.min(anchor.top, window.innerHeight - 420));
+  const groups = ['図形', '器具', '軌道'] as const;
+  return (
+    <div ref={ref} className="shape-palette menu-pop" style={{ left, top, width: W }} role="menu" aria-label="図形・器具・軌道">
+      {groups.map((g) => (
+        <div key={g}>
+          <div className="ctx-sub">{g}</div>
+          <div className="ctx-chips">
+            {SHAPES.filter((x) => x.group === g).map((x) => (
+              <button key={x.kind} className="mini" onClick={() => pick({ kind: 'shape', shape: x.kind })}>{x.name}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="ctx-sub">結合</div>
+      <div className="ctx-chips">
+        {BOND_TOOLS.map(([st, l]) => <button key={st} className="mini" onClick={() => pick({ kind: 'bond', order: 1, stereo: st })}>{l}</button>)}
+      </div>
+      <div className="ctx-sub">図</div>
+      <div className="ctx-chips">
+        <button className="mini icon" onClick={() => pick({ kind: 'shape', shape: 'tlc' })}>{Icons.tlc}TLC プレート</button>
+        <button className="mini icon" onClick={() => pick({ kind: 'shape', shape: 'energy' })}>{Icons.energy}エネルギー図</button>
+        <button className="mini icon" onClick={() => { onClose(); (document.getElementById('image-input') as HTMLInputElement | null)?.click(); }}>{Icons.image}画像を挿入…</button>
+      </div>
+      <p className="tip">ドラッグで大きさを決めて置きます (クリックで標準の大きさ)。選ぶと角のハンドルで大きさ、パネルで色・塗り・向きを変えられます。</p>
+    </div>
+  );
+}
+
 export function Toolbar() {
   const tool = useStore((s) => s.tool);
+  const [palette, setPalette] = useState<DOMRect | null>(null);
+  const moreActive = tool.kind === 'shape' && !['rect', 'ellipse', 'arrow'].includes(tool.shape);
   return (
     <nav className="toolbar" aria-label="ツール">
       {GROUPS.map((g, i) => (
@@ -90,6 +152,18 @@ export function Toolbar() {
           ))}
         </div>
       ))}
+      <div className="tool-group">
+        <button
+          className={`tool ${moreActive ? 'active' : ''}`}
+          title="器具・軌道・TLC・エネルギー図・画像"
+          aria-label="器具・軌道・TLC・エネルギー図・画像"
+          aria-expanded={!!palette}
+          onClick={(e) => setPalette(palette ? null : e.currentTarget.getBoundingClientRect())}
+        >
+          {Icons.shapes}
+        </button>
+      </div>
+      {palette && <ShapePalette anchor={palette} onClose={() => setPalette(null)} />}
       <div className="tool-group elements">
         {ELEMENTS_QUICK.map((el) => (
           <button
@@ -101,6 +175,7 @@ export function Toolbar() {
             {el}
           </button>
         ))}
+        <button className="tool el" title="周期表から元素を選ぶ" aria-label="周期表" onClick={() => setState({ periodicOpen: true })}>…</button>
       </div>
     </nav>
   );

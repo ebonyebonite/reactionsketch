@@ -240,6 +240,8 @@ export interface ReactionArrowGeom {
   /** 開いた矢じり (逆合成矢印) */
   openHeads: string[];
   cross: { x1: number; y1: number; x2: number; y2: number }[];
+  /** 軸を破線にする */
+  dashed?: boolean;
 }
 
 export function reactionArrowGeom(a: ReactionArrow): ReactionArrowGeom {
@@ -254,7 +256,9 @@ export function reactionArrowGeom(a: ReactionArrow): ReactionArrowGeom {
   const short = (p: Pt, k: number): Pt => ({ x: p.x + u.x * k, y: p.y + u.y * k });
   switch (a.kind) {
     case 'forward':
+    case 'dashed':
     case 'nogo': {
+      if (a.kind === 'dashed') g.dashed = true;
       const e = short(P2, -hl * 0.7);
       g.lines.push({ x1: P1.x, y1: P1.y, x2: e.x, y2: e.y });
       g.heads.push(arrowHead(P2, u, 'full', n, hl, hw));
@@ -279,6 +283,16 @@ export function reactionArrowGeom(a: ReactionArrow): ReactionArrowGeom {
       // 上の線は右向き (上側の羽)、下の線は左向き (下側の羽)
       g.heads.push(halfBarb(t2, u, { x: -n.x, y: -n.y }, hl, hw));
       g.heads.push(halfBarb(b1, { x: -u.x, y: -u.y }, n, hl, hw));
+      break;
+    }
+    case 'unbalanced': {
+      // 上 (右向き) の矢印を長く、下 (左向き) を短く: 平衡が右に偏る
+      const o = 1.7;
+      const t1 = { x: P1.x - n.x * o, y: P1.y - n.y * o }, t2 = { x: P2.x - n.x * o, y: P2.y - n.y * o };
+      const b1 = short({ x: P1.x + n.x * o, y: P1.y + n.y * o }, L * 0.22), b2 = short({ x: P2.x + n.x * o, y: P2.y + n.y * o }, -L * 0.22);
+      g.lines.push({ x1: t1.x, y1: t1.y, x2: t2.x, y2: t2.y }, { x1: b1.x, y1: b1.y, x2: b2.x, y2: b2.y });
+      g.heads.push(halfBarb(t2, u, { x: -n.x, y: -n.y }, hl, hw));
+      g.heads.push(halfBarb(b1, { x: -u.x, y: -u.y }, n, hl * 0.85, hw * 0.85));
       break;
     }
     case 'retro': {

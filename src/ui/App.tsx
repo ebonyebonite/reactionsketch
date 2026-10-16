@@ -11,6 +11,12 @@ import { SaltDialog } from './SaltDialog';
 import { SpectraDialog } from './SpectraDialog';
 import { RetroDialog } from './RetroDialog';
 import { PolymerCalcDialog } from './PolymerCalcDialog';
+import { PeriodicTable } from './PeriodicTable';
+import { LibraryDialog } from './LibraryDialog';
+import { SequenceDialog } from './SequenceDialog';
+import { AnalysisDialog } from './AnalysisDialog';
+import { IsomerDialog } from './IsomerDialog';
+import { Viewer3D } from './Viewer3D';
 import { ContextMenu } from './ContextMenu';
 import { activeTab, flushSave, setState, toast, useStore } from '../editor/store';
 import { fitView, installKeys } from '../editor/keys';
@@ -107,6 +113,12 @@ export function App() {
       <SpectraDialog />
       <RetroDialog />
       <PolymerCalcDialog />
+      <PeriodicTable />
+      <LibraryDialog />
+      <SequenceDialog />
+      <AnalysisDialog />
+      <IsomerDialog />
+      <Viewer3D />
       <ContextMenu />
     </div>
   );

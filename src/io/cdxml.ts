@@ -1,5 +1,5 @@
 // ChemDraw の CDXML 形式の読み書き (構造・文字・反応矢印・曲がった矢印・括弧)
-import { emptyDoc, newId, type Anchor, type Doc, type Id, type ReactionArrowKind } from '../model/types';
+import { emptyDoc, newId, type Anchor, type Bond, type Doc, type Id, type ReactionArrowKind } from '../model/types';
 import { ACS } from '../model/style';
 import { newAtom, newBond, findAtomNear } from '../model/edit';
 import { buildScene } from '../render/scene';
@@ -95,6 +95,7 @@ export function toCdxml(doc: Doc): string {
       if (at.charge) attrs.push(`Charge="${at.charge}"`);
       if (at.radical) attrs.push(`Radical="${at.radical === 1 ? 'Doublet' : 'Triplet'}"`);
       if (at.hCount !== undefined) attrs.push(`NumHydrogens="${at.hCount}"`);
+      if (at.isotope && !at.label) attrs.push(`Isotope="${at.isotope}"`);
       const lay = scene.layouts[id];
       const ink = colorAttr(atomInk(doc, at));
       if (lay?.visible) {
@@ -107,8 +108,10 @@ export function toCdxml(doc: Doc): string {
       if (!comp.includes(b.a1)) continue;
       const attrs = [`id="${idOf(b.id)}"`, `B="${idOf(b.a1)}"`, `E="${idOf(b.a2)}"`];
       if (b.order !== 1) attrs.push(`Order="${b.order}"`);
-      const disp = { wedge: 'WedgeBegin', hash: 'WedgedHashBegin', wavy: 'Wavy', bold: 'Bold', none: '' }[b.stereo];
+      const disp = ({ wedge: 'WedgeBegin', hash: 'WedgedHashBegin', wavy: 'Wavy', bold: 'Bold', dashed: 'Dash', hollow: 'HollowWedgeBegin' } as Record<string, string>)[b.stereo];
       if (disp) attrs.push(`Display="${disp}"`);
+      if (b.stereo === 'hbond') attrs.push('Order="hydrogen"');
+      if (b.stereo === 'dative') attrs.push('Order="dative"');
       if (b.order === 2 && b.doublePos !== 'auto') attrs.push(`DoublePosition="${b.doublePos === 'center' ? 'Center' : b.doublePos === 'left' ? 'Left' : 'Right'}"`);
       parts.push(`<b ${attrs.join(' ')}${colorAttr(b.color)}/>`);
     }
@@ -123,11 +126,13 @@ export function toCdxml(doc: Doc): string {
       const x = g?.lines[0]?.x ?? o.x, y = g?.lines[0]?.y ?? o.y;
       parts.push(`<t id="${idOf(oid)}" p="${f(x)} ${f(y)}" Justification="Left">${richToS(o.text, o.bold, colorAttr(o.color))}</t>`);
     } else if (o.type === 'reaction') {
-      const head = o.kind === 'equilibrium' ? 'HalfLeft' : 'Full';
-      const tail = o.kind === 'equilibrium' ? 'HalfLeft' : o.kind === 'resonance' ? 'Full' : '';
+      const eq = o.kind === 'equilibrium' || o.kind === 'unbalanced';
+      const head = eq ? 'HalfLeft' : 'Full';
+      const tail = eq ? 'HalfLeft' : o.kind === 'resonance' ? 'Full' : '';
       const extra = [
         `ArrowheadHead="${head}"`, tail ? `ArrowheadTail="${tail}"` : '', `ArrowheadType="${o.kind === 'retro' ? 'Hollow' : 'Solid'}"`,
         o.kind === 'equilibrium' ? 'ArrowShaftSpacing="3.4"' : '', o.kind === 'retro' ? 'ArrowShaftSpacing="3.8"' : '', o.kind === 'nogo' ? 'NoGo="Cross"' : '',
+        o.kind === 'dashed' ? 'LineType="Dashed"' : '', o.kind === 'unbalanced' ? 'ArrowShaftSpacing="3.4"' : '',
       ].filter(Boolean).join(' ');
       parts.push(`<arrow id="${idOf(oid)}" BoundingBox="${f(o.x2)} ${f(o.y2)} ${f(o.x1)} ${f(o.y1)}" Head3D="${f(o.x2)} ${f(o.y2)} 0" Tail3D="${f(o.x1)} ${f(o.y1)} 0" ${extra}${colorAttr(o.color)}/>`);
       const r = scene.reaction[oid];
@@ -156,6 +161,14 @@ export function toCdxml(doc: Doc): string {
       );
     } else if (o.type === 'plus') {
       parts.push(`<t id="${idOf(oid)}" p="${f(o.x - 3)} ${f(o.y + 3.6)}"><s font="3" size="12" face="0"${colorAttr(o.color)}>+</s></t>`);
+    } else if (o.type === 'shape' && (o.kind === 'rect' || o.kind === 'roundrect')) {
+      const x2 = o.x + o.w, y2 = o.y + o.h;
+      parts.push(`<graphic id="${idOf(oid)}" BoundingBox="${f(x2)} ${f(y2)} ${f(o.x)} ${f(o.y)}" GraphicType="Rectangle"${o.kind === 'roundrect' ? ' RectangleType="RoundEdge"' : ''}${o.dashed ? ' LineType="Dashed"' : ''}${colorAttr(o.color)}/>`);
+    } else if (o.type === 'shape' && (o.kind === 'line' || o.kind === 'arrow' || o.kind === 'darrow' || o.kind === 'dashedArrow')) {
+      const head = o.kind === 'line' ? '' : ' ArrowheadHead="Full" ArrowheadType="Solid"';
+      const tail = o.kind === 'darrow' ? ' ArrowheadTail="Full"' : '';
+      const dash = o.kind === 'dashedArrow' || o.dashed ? ' LineType="Dashed"' : '';
+      parts.push(`<arrow id="${idOf(oid)}" Head3D="${f(o.x + o.w)} ${f(o.y + o.h)} 0" Tail3D="${f(o.x)} ${f(o.y)} 0"${head}${tail}${dash}${colorAttr(o.color)}/>`);
     } else if (o.type === 'bracket') {
       parts.push(`<graphic id="${idOf(oid)}" BoundingBox="${f(o.x)} ${f(o.y)} ${f(o.x + o.w)} ${f(o.y + o.h)}" GraphicType="Bracket" BracketType="${o.shape === 'square' ? 'SquarePair' : 'RoundPair'}"${colorAttr(o.color)}/>`);
       if (o.label) parts.push(`<t id="${nextId++}" p="${f(o.x + o.w + 1.5)} ${f(o.y + 7)}"><s font="3" size="10" face="0"${colorAttr(o.color)}>${esc(o.label)}</s></t>`);
@@ -212,6 +225,8 @@ export function fromCdxml(xml: string): Doc {
       } else if (el === 'C' && labelText && /^C/.test(labelText)) a.showLabel = true;
       const nh = n.getAttribute('NumHydrogens');
       if (nh && type === 'Element') a.hCount = parseInt(nh, 10);
+      const iso = n.getAttribute('Isotope');
+      if (iso && !a.label) a.isotope = parseInt(iso, 10);
       const ink = colorOf(n) ?? colorOf(t?.querySelector('s') ?? null);
       if (ink) a.color = ink;
       doc.atoms[a.id] = a;
@@ -222,13 +237,18 @@ export function fromCdxml(xml: string): Doc {
       let a1 = nodeMap.get(b.getAttribute('B') ?? '');
       let a2 = nodeMap.get(b.getAttribute('E') ?? '');
       if (!a1 || !a2) continue;
-      const ord = num(b.getAttribute('Order'), 1);
+      const ordAttr = b.getAttribute('Order') ?? '';
+      const ord = ordAttr === 'hydrogen' || ordAttr === 'dative' ? 1 : num(ordAttr, 1);
       const disp = b.getAttribute('Display') ?? '';
-      let stereo: 'none' | 'wedge' | 'hash' | 'wavy' | 'bold' = 'none';
+      let stereo: Bond['stereo'] = 'none';
       if (/^Wedge(Begin|End)$/.test(disp)) stereo = 'wedge';
       if (/^WedgedHash(Begin|End)$/.test(disp) || disp === 'Hash') stereo = 'hash';
       if (disp === 'Wavy') stereo = 'wavy';
       if (disp === 'Bold') stereo = 'bold';
+      if (/^Dash$|^DashDash$/.test(disp)) stereo = 'dashed';
+      if (/^HollowWedge(Begin|End)$/.test(disp)) stereo = 'hollow';
+      if (ordAttr === 'hydrogen') stereo = 'hbond';
+      if (ordAttr === 'dative') stereo = 'dative';
       if (/End$/.test(disp)) [a1, a2] = [a2, a1];
       const bond = newBond(a1, a2, (ord >= 3 ? 3 : ord >= 1.5 ? 2 : 1) as 1 | 2 | 3, ord === 1 ? stereo : 'none');
       const dp = b.getAttribute('DoublePosition');
@@ -287,6 +307,7 @@ export function fromCdxml(xml: string): Doc {
       else if (hh === 'Full' && ht === 'Full') kind = 'resonance';
       else if (ar.getAttribute('ArrowheadType') === 'Hollow') kind = 'retro';
       if (ar.getAttribute('NoGo')) kind = 'nogo';
+      if (kind === 'forward' && ar.getAttribute('LineType') === 'Dashed') kind = 'dashed';
       addObj({ id: newId('o'), type: 'reaction', kind, x1: tail[0], y1: tail[1], x2: head[0], y2: head[1], above: '', below: '', ...(colorOf(ar) ? { color: colorOf(ar) } : {}) });
     }
   }

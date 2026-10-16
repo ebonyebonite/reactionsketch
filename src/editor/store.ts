@@ -1,12 +1,12 @@
 // アプリ全体の状態 (タブ・履歴・ツール・選択) と自動保存
 import { useSyncExternalStore } from 'react';
-import { emptyDoc, newId, type Doc, type Id, type Project, type ReactionArrowKind } from '../model/types';
+import { emptyDoc, newId, type Doc, type Id, type Project, type ReactionArrowKind, type ShapeKind, type BondStereo } from '../model/types';
 import { emptySelection, type Selection } from '../model/edit';
 import type { Condition } from '../chem/conditions';
 
 export type Tool =
   | { kind: 'select' }
-  | { kind: 'bond'; order: 1 | 2 | 3; stereo: 'none' | 'wedge' | 'hash' | 'wavy' | 'bold' }
+  | { kind: 'bond'; order: 1 | 2 | 3; stereo: BondStereo }
   | { kind: 'chain' }
   | { kind: 'ring'; size: number; aromatic: boolean; chair?: boolean }
   | { kind: 'eraser' }
@@ -17,7 +17,11 @@ export type Tool =
   | { kind: 'bracket'; shape: 'square' | 'round' }
   | { kind: 'plus' }
   | { kind: 'atomprop'; prop: 'plus' | 'minus' | 'lonepair' | 'radical' }
-  | { kind: 'element'; element: string };
+  | { kind: 'element'; element: string }
+  /** 図形・器具・軌道 (ドラッグで大きさ、クリックで標準の大きさ)、TLC、エネルギー図 */
+  | { kind: 'shape'; shape: ShapeKind | 'tlc' | 'energy' }
+  /** 投げ縄選択 */
+  | { kind: 'lasso' };
 
 export interface View {
   zoom: number;
@@ -79,6 +83,18 @@ export interface AppState {
   polymerCalcOpen: boolean;
   /** 逆合成を考える標的 (分子の原子と SMILES) */
   retroFor: { atoms: Id[]; smiles: string } | null;
+  /** 周期表 */
+  periodicOpen: boolean;
+  /** 3D 表示する分子の原子 */
+  view3dFor: Id[] | null;
+  /** ペプチド・核酸の配列から構造 */
+  sequenceOpen: boolean;
+  /** 官能基・部分構造の検索 */
+  findOpen: boolean;
+  /** テンプレート集 */
+  libraryOpen: boolean;
+  /** 立体異性体・共鳴構造・互変異性体を考える分子 */
+  isomersFor: { atoms: Id[]; kind: 'stereo' | 'resonance' | 'tautomer' } | null;
 }
 
 const PREF_SCHEMES = 'reactionsketch.showSchemes';
@@ -157,6 +173,12 @@ function loadInitial(): AppState {
     spectraFor: null,
     polymerCalcOpen: false,
     retroFor: null,
+    periodicOpen: false,
+    view3dFor: null,
+    sequenceOpen: false,
+    findOpen: false,
+    libraryOpen: false,
+    isomersFor: null,
     ...loadSaltPref(),
   };
 }

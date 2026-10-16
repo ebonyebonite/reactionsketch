@@ -1,8 +1,9 @@
 // MDL Molfile (V2000) の読み書き
-import { emptyDoc, type Atom, type Bond, type Doc, type Id } from '../model/types';
+import { emptyDoc, isNonCovalent, type Atom, type Bond, type Doc, type Id } from '../model/types';
 import { ACS } from '../model/style';
 import { newAtom, newBond } from '../model/edit';
 import { isElement, valencesFor } from '../model/elements';
+import { smallestRingOfBond } from '../model/graph';
 
 /** Molfile 上の 1 結合長 (Å) */
 const MOL_BOND = 1.5;
@@ -22,12 +23,14 @@ const pad = (s: string | number, n: number, right = false) => {
 export function toMolblock(doc: Doc, atomIds: Id[], opts: MolblockOptions = {}): { molblock: string; order: Id[] } {
   const order = atomIds.filter((id) => doc.atoms[id]);
   const index = new Map(order.map((id, i) => [id, i + 1]));
-  const bonds = Object.values(doc.bonds).filter((b) => index.has(b.a1) && index.has(b.a2));
+  // 部分結合・水素結合・配位結合は書かない
+  const bonds = Object.values(doc.bonds).filter((b) => index.has(b.a1) && index.has(b.a2) && !isNonCovalent(b));
   const k = MOL_BOND / ACS.bondLength;
   const lines: string[] = ['', '  ReactionSketch', ''];
   lines.push(`${pad(order.length, 3)}${pad(bonds.length, 3)}  0  0  0  0  0  0  0  0999 V2000`);
   const chg: string[] = [];
   const rad: string[] = [];
+  const iso: string[] = [];
   for (const id of order) {
     const a = doc.atoms[id];
     let sym = a.label ? (opts.labelAs?.(a) ?? '*') : a.element;
@@ -38,10 +41,13 @@ export function toMolblock(doc: Doc, atomIds: Id[], opts: MolblockOptions = {}):
     lines.push(`${pad(x, 10)}${pad(y, 10)}${pad('0.0000', 10)} ${pad(sym, 3, true)} 0  0  0  0  0  0  0  0  0  0  0  0`);
     if (a.charge) chg.push(`${pad(index.get(id)!, 4)}${pad(a.charge, 4)}`);
     if (a.radical) rad.push(`${pad(index.get(id)!, 4)}${pad(a.radical === 1 ? 2 : 3, 4)}`);
+    if (a.isotope && !a.label) iso.push(`${pad(index.get(id)!, 4)}${pad(a.isotope, 4)}`);
   }
   for (const b of bonds) {
-    const st = b.order === 1 ? ({ wedge: 1, hash: 6, wavy: 4, none: 0, bold: 0 } as const)[b.stereo] : 0;
-    lines.push(`${pad(index.get(b.a1)!, 3)}${pad(index.get(b.a2)!, 3)}${pad(b.order, 3)}${pad(st, 3)}`);
+    const st = b.order === 1 ? (({ wedge: 1, hash: 6, wavy: 4 } as Record<string, number>)[b.stereo] ?? 0) : 0;
+    // 部分二重結合 (実線 + 破線) は、環の中なら芳香族、それ以外は単結合として書く
+    const ord = b.stereo === 'dashed' && b.order === 2 ? (smallestRingOfBond(doc, b) ? 4 : 1) : b.order;
+    lines.push(`${pad(index.get(b.a1)!, 3)}${pad(index.get(b.a2)!, 3)}${pad(ord, 3)}${pad(st, 3)}`);
   }
   for (let i = 0; i < chg.length; i += 8) {
     const part = chg.slice(i, i + 8);
@@ -50,6 +56,10 @@ export function toMolblock(doc: Doc, atomIds: Id[], opts: MolblockOptions = {}):
   for (let i = 0; i < rad.length; i += 8) {
     const part = rad.slice(i, i + 8);
     lines.push(`M  RAD${pad(part.length, 3)}${part.join('')}`);
+  }
+  for (let i = 0; i < iso.length; i += 8) {
+    const part = iso.slice(i, i + 8);
+    lines.push(`M  ISO${pad(part.length, 3)}${part.join('')}`);
   }
   lines.push('M  END');
   return { molblock: lines.join('\n'), order };
@@ -90,8 +100,13 @@ export function parseMolblock(text: string): { doc: Doc; atomOrder: Id[] } {
   }
   const charges = new Map<number, number>();
   const radicals = new Map<number, number>();
+  const isotopes = new Map<number, number>();
   let hasChgLine = false;
   for (const l of lines.slice(ci + 1 + nAtoms + nBonds)) {
+    if (l.startsWith('M  ISO')) {
+      const n = parseInt(l.slice(6, 9), 10);
+      for (let j = 0; j < n; j++) isotopes.set(parseInt(l.slice(9 + j * 8, 13 + j * 8), 10) - 1, parseInt(l.slice(13 + j * 8, 17 + j * 8), 10));
+    }
     if (l.startsWith('M  CHG') || l.startsWith('M  RAD')) {
       const n = parseInt(l.slice(6, 9), 10);
       for (let j = 0; j < n; j++) {
@@ -130,6 +145,7 @@ export function parseMolblock(text: string): { doc: Doc; atomOrder: Id[] } {
       charge,
       radical,
       ...(label ? { label } : {}),
+      ...(isotopes.get(i) && !label ? { isotope: isotopes.get(i) } : {}),
     });
     atomOrder.push(a.id);
     return a;

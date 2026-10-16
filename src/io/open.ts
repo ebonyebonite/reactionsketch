@@ -1,7 +1,9 @@
-// ファイルを開く (.rsketch / .cdxml / .mol / .sdf / .smi)
+// ファイルを開く (.rsketch / .cdxml / .mol / .sdf / .rxn / .smi)
 import type { Project } from '../model/types';
 import { addTab, loadProject, toast } from '../editor/store';
-import { placeFragment } from '../editor/actions';
+import { addReactionFromQuery, placeFragment } from '../editor/actions';
+import { buildReactionDoc } from '../reactionScheme';
+import { parseRxn } from './formats';
 import { structureFromText } from '../chem/rdkit';
 import { fromCdxml } from './cdxml';
 
@@ -18,11 +20,19 @@ export async function openFiles(files: File[]): Promise<void> {
       addTab(fromCdxml(text), base);
       toast(`${name} を開きました`);
     } else if (ext === 'mol' || ext === 'sdf') {
-      const first = text.split(/\$\$\$\$/)[0];
-      placeFragment(await structureFromText(first));
+      // SDF は分子ごとに (50 個まで)
+      const blocks = text.split(/^\$\$\$\$\s*$/m).map((b) => b.replace(/^\r?\n/, '')).filter((b) => /M {2}END/.test(b)).slice(0, 50);
+      for (const b of blocks) placeFragment(await structureFromText(b.slice(0, b.indexOf('M  END') + 6)));
+      if (blocks.length > 1) toast(`${name}: ${blocks.length} 個の分子を開きました`);
+    } else if (ext === 'rxn') {
+      const r = await parseRxn(text);
+      placeFragment(await buildReactionDoc(r.reactants, r.products));
+      toast(`${name} の反応式を開きました`);
     } else if (ext === 'smi' || ext === 'txt') {
       for (const line of text.split(/\r?\n/).map((l) => l.trim().split(/\s+/)[0]).filter(Boolean).slice(0, 30)) {
-        placeFragment(await structureFromText(line));
+        // 反応 SMILES (原料>試薬>生成物)
+        if (/^[^>]*>[^>]*>[^>]+$/.test(line)) await addReactionFromQuery(line);
+        else placeFragment(await structureFromText(line));
       }
     } else {
       throw new Error(`${name}: この形式は開けません`);

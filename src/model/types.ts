@@ -28,12 +28,21 @@ export interface Atom {
   color?: string;
   /** 強調 (原子の後ろに塗る丸の色) */
   highlight?: string;
+  /** 同位体の質量数 (13C など)。未指定は天然存在比 */
+  isotope?: number;
 }
 
 /** 高分子の末端 (繰り返し単位の外へ伸びる結合の先)。label が '*' の原子 */
 export const STAR = '*';
 
-export type BondStereo = 'none' | 'wedge' | 'hash' | 'wavy' | 'bold';
+/**
+ * 結合の描き方。dashed (部分結合・遷移状態)・hbond (水素結合)・dative (配位結合、a1 → a2) は
+ * 共有結合として数えない (暗黙の水素・SMILES に含めない)。hollow は中抜きのくさび
+ */
+export type BondStereo = 'none' | 'wedge' | 'hash' | 'wavy' | 'bold' | 'dashed' | 'hbond' | 'dative' | 'hollow';
+
+/** 共有結合として数えない結合 (二重結合の dashed は「実線 + 破線」の部分二重結合で、1.5 として数える) */
+export const isNonCovalent = (b: { stereo: BondStereo; order: number }): boolean => (b.stereo === 'dashed' && b.order === 1) || b.stereo === 'hbond' || b.stereo === 'dative';
 export type DoublePos = 'auto' | 'left' | 'center' | 'right';
 
 export interface Bond {
@@ -74,7 +83,8 @@ export interface CurvedArrow {
   color?: string;
 }
 
-export type ReactionArrowKind = 'forward' | 'equilibrium' | 'retro' | 'resonance' | 'nogo';
+/** dashed: 破線の矢印 (仮定の段階・多段階)、unbalanced: 片寄った平衡 (右に偏る) */
+export type ReactionArrowKind = 'forward' | 'equilibrium' | 'retro' | 'resonance' | 'nogo' | 'dashed' | 'unbalanced';
 
 export interface ReactionArrow {
   id: Id;
@@ -130,7 +140,113 @@ export interface PlusSign {
   color?: string;
 }
 
-export type GraphicObject = CurvedArrow | ReactionArrow | TextBox | Bracket | PlusSign;
+/** 図形の種類: 基本図形・実験器具・原子軌道 */
+export type ShapeKind =
+  | 'rect' | 'roundrect' | 'ellipse' | 'line' | 'arrow' | 'darrow' | 'dashedArrow'
+  | 'flask' | 'rbflask' | 'beaker' | 'testtube' | 'funnel' | 'sepfunnel' | 'condenser' | 'cylinder' | 'burner'
+  | 'orbitalS' | 'orbitalP' | 'orbitalHybrid' | 'orbitalSp' | 'orbitalSp2' | 'orbitalSp3' | 'orbitalD';
+
+/** 線・矢印は (x, y) → (x + w, y + h) の向き (w・h は負にもなる)。それ以外は x, y が左上 */
+export interface Shape {
+  id: Id;
+  type: 'shape';
+  kind: ShapeKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 中心まわりの回転 (度)。軌道の向きなど */
+  angle?: number;
+  color?: string;
+  /** 塗り (#rrggbb)。未指定は塗らない (軌道は片方の位相を灰色で塗る) */
+  fill?: string;
+  dashed?: boolean;
+  /** 線の太さの倍率 (1 = 結合と同じ) */
+  weight?: number;
+}
+
+/** 貼り付けた画像 (data URL) */
+export interface ImageObject {
+  id: Id;
+  type: 'image';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  href: string;
+}
+
+export interface TlcSpot {
+  rf: number;
+  /** 大きさ (1 = 普通) */
+  size?: number;
+  /** 薄いスポット (尾を引く・淡い) */
+  faint?: boolean;
+  color?: string;
+}
+
+export interface TlcLane {
+  label: string;
+  spots: TlcSpot[];
+}
+
+/** 薄層クロマトグラフィー (TLC) の板 */
+export interface TlcPlate {
+  id: Id;
+  type: 'tlc';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  lanes: TlcLane[];
+  /** 原点の線の位置 (下からの割合) */
+  origin: number;
+  /** 溶媒の先端 (上からの割合) */
+  front: number;
+  /** Rf 値を横に書く */
+  showRf?: boolean;
+  color?: string;
+}
+
+export interface EnergyLevel {
+  label: string;
+  /** エネルギー (unit) */
+  energy: number;
+  /** 遷移状態 (山) */
+  ts?: boolean;
+}
+
+/** エネルギー図 (反応座標図) */
+export interface EnergyDiagram {
+  id: Id;
+  type: 'energy';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  levels: EnergyLevel[];
+  unit: string;
+  /** エネルギーの数値を書く */
+  showValues?: boolean;
+  /** 縦軸・横軸を描く */
+  axes?: boolean;
+  color?: string;
+}
+
+/** 箱 (x, y, w, h) で大きさが決まるオブジェクト */
+export type BoxObject = Shape | ImageObject | TlcPlate | EnergyDiagram;
+
+export const isBoxObject = (o: { type: string }): o is BoxObject => o.type === 'shape' || o.type === 'image' || o.type === 'tlc' || o.type === 'energy';
+
+/** 線・矢印の図形 (箱ではなく 2 点で表す) */
+export const isLineShape = (o: { type: string; kind?: string }): boolean => o.type === 'shape' && (o.kind === 'line' || o.kind === 'arrow' || o.kind === 'darrow' || o.kind === 'dashedArrow');
+
+/** 箱の正規化 (w・h が負でも左上と大きさにする) */
+export function normBox(o: { x: number; y: number; w: number; h: number }): { x1: number; y1: number; x2: number; y2: number } {
+  return { x1: Math.min(o.x, o.x + o.w), y1: Math.min(o.y, o.y + o.h), x2: Math.max(o.x, o.x + o.w), y2: Math.max(o.y, o.y + o.h) };
+}
+
+export type GraphicObject = CurvedArrow | ReactionArrow | TextBox | Bracket | PlusSign | Shape | ImageObject | TlcPlate | EnergyDiagram;
 
 export interface DocSettings {
   /** 電荷を ⊕ / ⊖ (丸囲み) で表示 */
@@ -139,6 +255,8 @@ export interface DocSettings {
   showStereo?: boolean;
   /** 原子ラベルを元素ごとに色分け (N 青・O 赤 …) */
   colorAtoms?: boolean;
+  /** 原子の横に書く情報: 混成・酸化数・通し番号 */
+  atomInfo?: 'hybrid' | 'oxidation' | 'index';
 }
 
 export type ReagentRole = 'substrate' | 'reagent' | 'catalyst' | 'solvent' | 'product';

@@ -9,6 +9,7 @@ import { docBodySvg } from '../render/svg';
 import { expandLabels } from '../chem/rdkit';
 import { toMolblock } from '../chem/molfile';
 import { carbonReport, predictAll, protonReport, type ProtonPeak, type Spectra } from '../chem/spectra';
+import { ionizedFraction, pkaSites, solubilityClass, type PkaSite } from '../chem/estimate';
 import { copyText } from '../io/export';
 
 type Tab = 'props' | 'h' | 'c' | 'ir' | 'ms';
@@ -20,6 +21,7 @@ interface Prepared {
   data: Spectra;
   formula: string;
   mw: number;
+  pka: PkaSite[];
 }
 
 async function prepare(doc: Doc, atoms: Id[]): Promise<Prepared> {
@@ -31,8 +33,9 @@ async function prepare(doc: Doc, atoms: Id[]): Promise<Prepared> {
   const { molblock, order } = toMolblock(expanded, ids);
   const f = formulaOf(expanded, ids);
   const data = await predictAll(molblock, f.counts, f.charge);
+  const pka = await pkaSites(molblock).catch(() => []);
   const { molecularWeight } = await import('../model/formula');
-  return { sub, order, data, formula: formulaText(f.counts), mw: molecularWeight(f.counts) };
+  return { sub, order, data, formula: formulaText(f.counts), mw: molecularWeight(f.counts), pka };
 }
 
 /** 分子の図 (指したピークの原子を丸で強調) */
@@ -266,8 +269,42 @@ export function SpectraDialog() {
                     <Row k="不斉中心" v={d.props.stereocenters ?? '—'} />
                     <Row k="モル屈折" v={fmt(d.props.mr)} />
                     <Row k="リピンスキーの法則" v={d.props.lipinski === undefined ? '—' : d.props.lipinski === 0 ? '満たす (違反 0)' : `違反 ${d.props.lipinski}`} note="MW ≤ 500, logP ≤ 5, 供与体 ≤ 5, 受容体 ≤ 10" />
+                    {d.est.logS !== null && (
+                      <Row k="水溶解度 log S (ESOL)" v={`${d.est.logS.toFixed(2)} (≈ ${(10 ** d.est.logS * prep.mw).toPrecision(2)} g/L)`} note={solubilityClass(d.est.logS)} />
+                    )}
+                    {d.est.joback ? (
+                      <>
+                        <Row k="沸点 (Joback)" v={`${(d.est.joback.tb - 273.15).toFixed(0)} °C`} note="1 atm の推算値 (±15 °C 程度)" />
+                        <Row k="融点 (Joback)" v={`${(d.est.joback.tm - 273.15).toFixed(0)} °C`} note="誤差が大きい (±40 °C)" />
+                        <Row k="臨界温度・圧力・体積" v={`${(d.est.joback.tc - 273.15).toFixed(0)} °C, ${d.est.joback.pc.toFixed(1)} bar, ${d.est.joback.vc.toFixed(0)} cm³/mol`} />
+                        <Row k="ΔHf°・ΔGf° (気体)" v={`${d.est.joback.hf.toFixed(1)}, ${d.est.joback.gf.toFixed(1)} kJ/mol`} note="298 K の推算値" />
+                      </>
+                    ) : (
+                      <Row k="沸点・融点 (Joback)" v="—" note="この原子団 (Si・P・S=O など) は Joback 法に含まれません" />
+                    )}
                   </tbody>
                 </table>
+              )}
+              {tab === 'props' && prep.pka.length > 0 && (
+                <>
+                  <h4 className="spec-sub">酸・塩基 (pKa の目安)</h4>
+                  <table className="spec-table peaks">
+                    <thead><tr><th>部位</th><th>pKa</th><th>pH 7.4 で</th></tr></thead>
+                    <tbody>
+                      {prep.pka.map((p2, i) => {
+                        const ion = ionizedFraction(p2, 7.4);
+                        return (
+                          <tr key={i} onMouseEnter={() => setHover(toDrawn(p2.atoms))} onMouseLeave={() => setHover([])}>
+                            <td>{p2.name}{p2.type === 'base' ? ' (共役酸)' : ''}</td>
+                            <td>{p2.pka}</td>
+                            <td>{ion > 0.5 ? (p2.type === 'acid' ? '陰イオン' : '陽イオン') : '中性'} ({(ion * 100).toFixed(ion > 0.999 || ion < 0.001 ? 0 : 1)}%)</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <p className="tip">代表的な化合物の水中の値です。置換基の効果 (電子求引基で酸性が強くなるなど) は含みません。</p>
+                </>
               )}
               {tab === 'h' && (
                 <>
@@ -336,6 +373,22 @@ export function SpectraDialog() {
                     <tbody>{d.isotopes.map((p, i) => <tr key={i}><td>{p.mz.toFixed(4)}</td><td>{p.rel.toFixed(1)}</td></tr>)}</tbody>
                   </table>
                   <p className="tip">Cl (M+2 が約 1/3)、Br (M+2 がほぼ同じ高さ) の有無が分かります。HRMS の計算値は分子のパネルの「HRMS」でコピーできます。</p>
+                  {d.est.fragments.length > 0 && (
+                    <>
+                      <h4 className="spec-sub">フラグメント (単結合 1 本の開裂、EI)</h4>
+                      <table className="spec-table peaks">
+                        <thead><tr><th>m/z</th><th>断片</th><th>失ったもの</th><th /></tr></thead>
+                        <tbody>
+                          {d.est.fragments.slice(0, 16).map((fr, i) => (
+                            <tr key={i} onMouseEnter={() => setHover(toDrawn(fr.atoms))} onMouseLeave={() => setHover([])}>
+                              <td>{fr.mz.toFixed(1)}</td><td>{fr.formula}⁺</td><td>{fr.loss}</td><td className="note">{fr.alpha ? 'α 開裂' : ''}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p className="tip">指すと陽イオンになる側の原子を示します。カルボニル・ヘテロ原子の隣 (α 開裂) が起こりやすい傾向です。結合を右クリック →「この結合で開裂 (MS)」で、図に m/z を書き込めます。</p>
+                    </>
+                  )}
                 </>
               )}
               <p className="tip">加成則による概算の予測です (¹H は ±0.3 ppm、¹³C は ±5 ppm 程度ずれることがあります)。帰属の参考にしてください。</p>

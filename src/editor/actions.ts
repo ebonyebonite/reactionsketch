@@ -6,7 +6,7 @@ import {
   deleteSelection, emptySelection, expandToMolecules, extractSelection, insertFragment, selectedAtomIds, selectionSize,
   transformSelection, updateAtom, updateBond, withObject, type Selection,
 } from '../model/edit';
-import { ELEMENTS, lookupAbbreviation } from '../model/elements';
+import { ELEMENTS, isElement, lookupAbbreviation } from '../model/elements';
 import { components, componentOf } from '../model/graph';
 import { activeTab, commit, getState, setState, setView, toast } from './store';
 import { buildScene, componentBox } from '../render/scene';
@@ -38,14 +38,19 @@ export function parseAtomInput(raw: string): Partial<Atom> | null {
     charge = cm[3] === '+' ? n : -n;
     s = cm[1];
   }
+  // 同位体: 13C, 2H, 18O, 13CH3 (質量数 + 元素 [+ H の数])
+  const iso = s.match(/^(\d{1,3})([A-Z][a-z]?)(?:H(\d*))?$/);
+  if (iso && isElement(iso[2])) {
+    return { element: iso[2], isotope: parseInt(iso[1], 10), label: undefined, showLabel: undefined, hCount: iso[3] !== undefined ? (iso[3] ? parseInt(iso[3], 10) : 1) : undefined, charge };
+  }
   const cap = s.length <= 2 ? s[0].toUpperCase() + s.slice(1).toLowerCase() : s;
-  if (cap in ELEMENTS) return { element: cap, label: undefined, showLabel: cap === 'C' ? true : undefined, hCount: undefined, charge };
+  if (isElement(cap)) return { element: cap, isotope: undefined, label: undefined, showLabel: cap === 'C' ? true : undefined, hCount: undefined, charge };
   const hm = s.match(/^([A-Z][a-z]?)H(\d*)$/);
-  if (hm && hm[1] in ELEMENTS) {
+  if (hm && isElement(hm[1])) {
     return { element: hm[1], label: undefined, showLabel: hm[1] === 'C' ? true : undefined, hCount: hm[2] ? parseInt(hm[2], 10) : 1, charge };
   }
   const hl = s.match(/^H(\d*)([A-Z][a-z]?)$/);
-  if (hl && hl[2] in ELEMENTS) {
+  if (hl && isElement(hl[2])) {
     return { element: hl[2], label: undefined, showLabel: hl[2] === 'C' ? true : undefined, hCount: hl[1] ? parseInt(hl[1], 10) : 1, charge };
   }
   const ab = lookupAbbreviation(s);
@@ -267,6 +272,9 @@ export function ensureVisible(x: number, y: number, w = 0): void {
 }
 
 export async function pasteFromClipboard(at?: { x: number; y: number }): Promise<void> {
+  // 外からコピーした画像 (写真・スクリーンショット) は画像として貼る
+  const { pasteImageFromClipboard } = await import('./objects');
+  if (await pasteImageFromClipboard(at)) return;
   // 外部からのテキスト (SMILES / Molfile / 名前) を優先し、なければ内部クリップボード
   let text = '';
   try {
@@ -1237,4 +1245,22 @@ export function applyColor(field: 'color' | 'highlight', value: string | undefin
 export function toggleElementColors(): void {
   const d = doc();
   commit({ ...d, settings: { ...d.settings, colorAtoms: !d.settings.colorAtoms || undefined } });
+}
+
+/** 選んだ分子 (なければ最初の分子) の原子 */
+export function selectedMoleculeAtoms(): Id[] {
+  const d = doc();
+  const ids = selectedAtomIds(d, getState().selection);
+  if (ids.size) return [...ids];
+  const first = components(d).find((c) => c.length > 1);
+  return first ?? [];
+}
+
+export function openIsomersForSelection(kind: 'stereo' | 'resonance' | 'tautomer'): void {
+  const atoms = selectedMoleculeAtoms();
+  if (!atoms.length) {
+    toast('分子を選んでください', 'error');
+    return;
+  }
+  setState({ isomersFor: { atoms, kind } });
 }

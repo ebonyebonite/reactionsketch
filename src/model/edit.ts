@@ -150,6 +150,22 @@ export function transformSelection(doc: Doc, sel: Selection, fn: (x: number, y: 
         objects[id] = { ...o, x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
         break;
       }
+      case 'shape':
+      case 'image':
+      case 'tlc':
+      case 'energy': {
+        if (o.type === 'shape' && (o.kind === 'line' || o.kind === 'arrow' || o.kind === 'darrow' || o.kind === 'dashedArrow')) {
+          const [x1, y1] = fn(o.x, o.y);
+          const [x2, y2] = fn(o.x + o.w, o.y + o.h);
+          objects[id] = { ...o, x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+          break;
+        }
+        // 箱は中心を動かし、大きさは変えない (回転・反転しても形はそのまま)
+        const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+        const [nx, ny] = fn(cx, cy);
+        objects[id] = { ...o, x: nx - o.w / 2, y: ny - o.h / 2 };
+        break;
+      }
       case 'curved': {
         const mv = (a: Anchor): Anchor => {
           if (a.kind === 'free') {
@@ -506,6 +522,12 @@ export function insertFragment(doc: Doc, frag: Doc, dx = 0, dy = 0): { doc: Doc;
         break;
       case 'bracket': copy = { ...o, id, x: o.x + dx, y: o.y + dy }; break;
       case 'plus': copy = { ...o, id, x: o.x + dx, y: o.y + dy }; break;
+      case 'shape':
+      case 'image':
+      case 'tlc':
+      case 'energy':
+        copy = { ...o, id, x: o.x + dx, y: o.y + dy };
+        break;
     }
     if (copy) {
       next = withObject(next, copy);

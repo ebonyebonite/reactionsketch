@@ -7,6 +7,7 @@ import { bondShapes, type BondShape } from './bonds';
 import { curvedArrowGeom, reactionArrowGeom, type ArcGeom, type ReactionArrowGeom } from './arrows';
 import { lineWidth, parseRichLine, type Span } from './richtext';
 import { CAP_HEIGHT } from './measure';
+import { boxObjectBounds } from './shapes';
 
 export interface TextLine {
   spans: Span[];
@@ -196,6 +197,12 @@ export function buildScene(doc: Doc): Scene {
       }
       case 'plus':
         bbox = grow(bbox, { x1: o.x - 5, y1: o.y - 5, x2: o.x + 5, y2: o.y + 5 });
+        break;
+      case 'shape':
+      case 'image':
+      case 'tlc':
+      case 'energy':
+        bbox = grow(bbox, boxObjectBounds(o));
         break;
     }
   }

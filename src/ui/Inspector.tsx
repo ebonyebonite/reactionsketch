@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Atom, Bond, Bracket, CurvedArrow, Doc, Id, ReactionArrow, ReactionArrowKind, TextBox } from '../model/types';
 import { selectedAtomIds, selectionSize, updateAtom, updateBond, withObject } from '../model/edit';
 import { components } from '../model/graph';
-import { exactMass, formulaOf, formulaText, hillOrder, hrmsSentence, molecularWeight, type Adduct } from '../model/formula';
+import { exactMass, formulaOf, formulaText, hillOrder, hrmsSentence, isoText, molecularWeight, type Adduct } from '../model/formula';
+import { ELEMENTS, ISOTOPES } from '../model/elements';
 import { activeTab, commit, endTransient, saveShowSchemes, setState, toast, updateTransient, useStore } from '../editor/store';
 import { findScheme } from '../model/scheme';
 import { COUNTER_IONS } from '../model/salt';
@@ -11,10 +12,13 @@ import { coefficientOf } from '../model/coefficient';
 import {
   addCompoundNumber, addRepeatBracket, alignReactionAtoms, balanceReactionCoefficients, setSelectedCoefficient, alignSelection, applyArrowsToNext, proposeMechanismForScheme, cleanStructure, polymerizeSelected, expandSelectedLabels, flipSelection, rotateSelection, renumberCompounds,
   addCounterIon, openSpectra, retrosynthesisForSelection, predictProductsForScheme, saltifySelected, splitIonicSelected, neutralizeSelected, suggestConditionsForScheme, applyCondition,
-  applyColor, toggleElementColors,
+  applyColor, toggleElementColors, openIsomersForSelection,
 } from '../editor/actions';
 import { HIGHLIGHT_COLORS, INK_COLORS, type NamedColor } from '../model/colors';
+import { EnergyPanel, ImagePanel, ShapePanel, TlcPanel } from './ObjectPanels';
+import { hideHydrogens, showHydrogens } from '../editor/hydrogens';
 import { smilesOf } from '../chem/rdkit';
+import { inchiOf } from '../io/formats';
 import { nameFromSmiles } from '../chem/names';
 import { copyText, exportPrefs, saveExportPrefs } from '../io/export';
 import { Icons } from './icons';
@@ -24,7 +28,7 @@ function FormulaView({ counts }: { counts: Record<string, number> }) {
     <span className="formula">
       {hillOrder(counts).map(([e, n]) => (
         <span key={e}>
-          {e}
+          {isoText(e)}
           {n > 1 && <sub>{n}</sub>}
         </span>
       ))}
@@ -35,6 +39,7 @@ function FormulaView({ counts }: { counts: Record<string, number> }) {
 function MoleculeInfo({ doc, atomIds }: { doc: Doc; atomIds: Id[] }) {
   const f = useMemo(() => formulaOf(doc, atomIds), [doc, atomIds]);
   const [smiles, setSmiles] = useState<string>('');
+  const [inchi, setInchi] = useState<{ inchi: string; key: string } | null>(null);
   const [name, setName] = useState<string>('');
   const [adduct, setAdduct] = useState<Adduct>('[M+H]+');
   const [dp, setDp] = useState(100);
@@ -44,9 +49,11 @@ function MoleculeInfo({ doc, atomIds }: { doc: Doc; atomIds: Id[] }) {
     let alive = true;
     setSmiles('');
     setName('');
+    setInchi(null);
     smilesOf(doc, atomIds)
       .then((s) => alive && setSmiles(s))
       .catch(() => alive && setSmiles(''));
+    if (!isPolymer) inchiOf(doc, atomIds).then((r) => alive && setInchi(r)).catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -85,6 +92,14 @@ function MoleculeInfo({ doc, atomIds }: { doc: Doc; atomIds: Id[] }) {
         <code className="smiles" title={smiles}>{smiles || '…'}</code>
         <button className="mini" disabled={!smiles} onClick={() => copyText(smiles).then(() => toast('SMILES をコピーしました'))}>コピー</button>
       </div>
+      {inchi && (
+        <div className="row wrap">
+          <span className="k">InChIKey</span>
+          <code className="smiles" title={inchi.inchi}>{inchi.key}</code>
+          <button className="mini" onClick={() => copyText(inchi.key).then(() => toast('InChIKey をコピーしました'))}>コピー</button>
+          <button className="mini" onClick={() => copyText(inchi.inchi).then(() => toast('InChI をコピーしました'))}>InChI</button>
+        </div>
+      )}
       <div className="row wrap">
         <span className="k">名前</span>
         {name ? <span className="name">{name}</span> : (
@@ -146,6 +161,16 @@ function AtomPanel({ atom }: { atom: Atom }) {
         <span className="k">原子番号表示</span>
         <input type="number" min={0} className="num" value={atom.mapNo ?? ''} onChange={(e) => set({ mapNo: e.target.value ? parseInt(e.target.value, 10) : undefined })} />
       </div>
+      {!atom.label && (
+        <div className="row wrap">
+          <span className="k">同位体</span>
+          <button className={`mini ${!atom.isotope ? 'on' : ''}`} onClick={() => set({ isotope: undefined })}>なし</button>
+          {Object.keys(ISOTOPES[atom.element] ?? {}).map(Number).filter((m) => m !== Math.round(ELEMENTS[atom.element]?.mono ?? 0)).map((m) => (
+            <button key={m} className={`mini ${atom.isotope === m ? 'on' : ''}`} onClick={() => set({ isotope: m })}>{isoText(`${m}${atom.element}`)}</button>
+          ))}
+          <input type="number" className="num" min={1} max={300} value={atom.isotope ?? ''} placeholder="質量数" onChange={(e) => set({ isotope: e.target.value ? parseInt(e.target.value, 10) : undefined })} aria-label="質量数" />
+        </div>
+      )}
       {atom.element === 'C' && !atom.label && (
         <label className="row check"><input type="checkbox" checked={!!atom.showLabel} onChange={(e) => set({ showLabel: e.target.checked || undefined })} />炭素の元素記号を表示</label>
       )}
@@ -164,12 +189,20 @@ function BondPanel({ bond }: { bond: Bond }) {
         {([1, 2, 3] as const).map((o) => <button key={o} className={`mini ${bond.order === o ? 'on' : ''}`} onClick={() => set({ order: o, stereo: 'none' })}>{['単', '二重', '三重'][o - 1]}</button>)}
       </div>
       {bond.order === 1 && (
-        <div className="row">
+        <div className="row wrap">
           <span className="k">立体</span>
-          {(['none', 'wedge', 'hash', 'wavy', 'bold'] as const).map((s) => (
-            <button key={s} className={`mini ${bond.stereo === s ? 'on' : ''}`} onClick={() => set({ stereo: s })}>{{ none: 'なし', wedge: 'くさび', hash: '破線', wavy: '波線', bold: '太線' }[s]}</button>
+          {(['none', 'wedge', 'hash', 'hollow', 'wavy', 'bold'] as const).map((s) => (
+            <button key={s} className={`mini ${bond.stereo === s ? 'on' : ''}`} onClick={() => set({ stereo: s })}>{{ none: 'なし', wedge: 'くさび', hash: '破線くさび', hollow: '中抜き', wavy: '波線', bold: '太線' }[s]}</button>
           ))}
-          {(bond.stereo === 'wedge' || bond.stereo === 'hash') && <button className="mini" onClick={() => set({ a1: bond.a2, a2: bond.a1 })}>向きを反転</button>}
+          {(bond.stereo === 'wedge' || bond.stereo === 'hash' || bond.stereo === 'hollow' || bond.stereo === 'dative') && <button className="mini" onClick={() => set({ a1: bond.a2, a2: bond.a1 })}>向きを反転</button>}
+        </div>
+      )}
+      {bond.order === 1 && (
+        <div className="row wrap">
+          <span className="k">非共有</span>
+          {(['dashed', 'hbond', 'dative'] as const).map((s) => (
+            <button key={s} className={`mini ${bond.stereo === s ? 'on' : ''}`} onClick={() => set({ stereo: s })}>{{ dashed: '部分結合 (破線)', hbond: '水素結合', dative: '配位結合 →' }[s]}</button>
+          ))}
         </div>
       )}
       {bond.order === 2 && (
@@ -178,6 +211,10 @@ function BondPanel({ bond }: { bond: Bond }) {
           {(['auto', 'left', 'center', 'right'] as const).map((p) => <button key={p} className={`mini ${bond.doublePos === p ? 'on' : ''}`} onClick={() => set({ doublePos: p })}>{{ auto: '自動', left: '左', center: '中央', right: '右' }[p]}</button>)}
         </div>
       )}
+      {bond.order === 2 && (
+        <label className="row check"><input type="checkbox" checked={bond.stereo === 'dashed'} onChange={(e) => set({ stereo: e.target.checked ? 'dashed' : 'none' })} />2 本目を破線 (部分二重結合・共鳴混成体)</label>
+      )}
+      {(bond.stereo === 'dashed' || bond.stereo === 'hbond' || bond.stereo === 'dative') && bond.order === 1 && <p className="tip">この結合は共有結合として数えません (水素の数・分子式・SMILES はつながっていないものとして計算)。</p>}
     </section>
   );
 }
@@ -209,7 +246,7 @@ function CurvedPanel({ arrow }: { arrow: CurvedArrow }) {
   );
 }
 
-const ARROW_KINDS: [ReactionArrowKind, string][] = [['forward', '→'], ['equilibrium', '⇌'], ['retro', '⇒'], ['resonance', '↔'], ['nogo', '→×']];
+const ARROW_KINDS: [ReactionArrowKind, string][] = [['forward', '→'], ['equilibrium', '⇌'], ['unbalanced', '⇌ (偏り)'], ['retro', '⇒'], ['resonance', '↔'], ['dashed', '⇢'], ['nogo', '→×']];
 
 function ReactionPanel({ arrow }: { arrow: ReactionArrow }) {
   const d = activeTab().doc;
@@ -392,7 +429,7 @@ function ColorSection({ doc }: { doc: Doc }) {
   const objs = [...sel.objects].map((id) => doc.objects[id]).filter(Boolean);
   // 全部が同じ値ならその値、ばらばらなら null
   const common = (vals: (string | undefined)[]) => (vals.length && vals.every((v) => v === vals[0]) ? vals[0] : null);
-  const ink = common([...atoms.map((a) => a.color), ...bonds.map((b) => b.color), ...objs.map((o) => o.color)]);
+  const ink = common([...atoms.map((a) => a.color), ...bonds.map((b) => b.color), ...objs.map((o) => ('color' in o ? o.color : undefined))]);
   const hl = common([...atoms.map((a) => a.highlight), ...bonds.map((b) => b.highlight)]);
   if (!atoms.length && !bonds.length && !objs.length) return null;
   return (
@@ -428,6 +465,17 @@ function DocPanel() {
           <input type="checkbox" checked={!!doc.settings.colorAtoms} onChange={toggleElementColors} />
           元素を色分け (N 青・O 赤・S 黄・ハロゲン 緑 …)
         </label>
+        <div className="row wrap">
+          <span className="k">原子の横に</span>
+          {([[undefined, 'なし'], ['hybrid', '混成'], ['oxidation', '酸化数'], ['index', '番号']] as const).map(([v, l]) => (
+            <button key={l} className={`mini ${doc.settings.atomInfo === v ? 'on' : ''}`} onClick={() => commit({ ...doc, settings: { ...doc.settings, atomInfo: v } })}>{l}</button>
+          ))}
+        </div>
+        <div className="row">
+          <button className="mini" onClick={() => setState({ findOpen: true })}>官能基・構造チェック…</button>
+          <button className="mini" onClick={showHydrogens}>水素を描く</button>
+          <button className="mini" onClick={hideHydrogens}>水素を外す</button>
+        </div>
         <SchemeToggle />
         <div className="row">
           <button className="mini" onClick={() => setState({ saltOpen: true })}>塩・イオンを作る…</button>
@@ -541,6 +589,10 @@ export function Inspector() {
         if (o.type === 'reaction') return <ReactionPanel key={o.id} arrow={o} />;
         if (o.type === 'text') return <TextPanel key={o.id} t={o} />;
         if (o.type === 'bracket') return <BracketPanel key={o.id} b={o} />;
+        if (o.type === 'shape') return <ShapePanel key={o.id} s={o} />;
+        if (o.type === 'image') return <ImagePanel key={o.id} im={o} />;
+        if (o.type === 'tlc') return <TlcPanel key={o.id} t={o} />;
+        if (o.type === 'energy') return <EnergyPanel key={o.id} e={o} />;
         return null;
       }).slice(0, 3)}
       {molGroups.length > 0 && (
@@ -550,6 +602,12 @@ export function Inspector() {
           <div className="row">
             <button className="mini primary" onClick={openSpectra} title="物性・¹H / ¹³C NMR・IR・MS の予測">物性・スペクトル予測</button>
             <button className="mini" onClick={retrosynthesisForSelection} title="この分子を作る 1 段の切断と前駆体の候補">逆合成を提案</button>
+          </div>
+          <div className="row wrap">
+            <button className="mini" onClick={() => openIsomersForSelection('stereo')}>立体異性体</button>
+            <button className="mini" onClick={() => openIsomersForSelection('resonance')}>共鳴構造</button>
+            <button className="mini" onClick={() => openIsomersForSelection('tautomer')}>互変異性体</button>
+            <button className="mini" onClick={() => setState({ view3dFor: [...molGroups.flat()] })}>3D 表示</button>
           </div>
           <CoefficientField doc={doc} comps={molGroups} />
           <div className="row wrap">

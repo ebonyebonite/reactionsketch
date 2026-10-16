@@ -76,6 +76,10 @@ export function installKeys(): () => void {
           e.preventDefault();
           duplicateSelection();
           return;
+        case 'p':
+          e.preventDefault();
+          exportCurrent('print').catch((err: Error) => toast(err.message, 'error'));
+          return;
         case 's':
           e.preventDefault();
           exportCurrent('project').catch((err: Error) => toast(err.message, 'error'));

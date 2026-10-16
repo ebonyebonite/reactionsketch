@@ -102,9 +102,17 @@ function crc32(data: Uint8Array): number {
 }
 
 /** PNG をクリップボードへ (Word・PowerPoint にそのまま貼れる) */
+/** 最後に自分でコピーした PNG の大きさ (貼り付けで、自分の図の画像と外からの画像を見分ける) */
+export let lastCopiedPngSize = -1;
+
 export async function copyPng(doc: Doc): Promise<void> {
   if (!('ClipboardItem' in window)) throw new Error('このブラウザは画像のコピーに対応していません。PNG で保存してください');
-  const item = new ClipboardItem({ 'image/png': renderPng(doc) });
+  const item = new ClipboardItem({
+    'image/png': renderPng(doc).then((b) => {
+      lastCopiedPngSize = b.size;
+      return b;
+    }),
+  });
   await navigator.clipboard.write([item]);
 }
 
@@ -210,3 +218,25 @@ export function safeFilename(name: string): string {
 }
 
 export type { Id };
+
+/** 印刷: 図だけのページを隠した iframe に作って印刷する */
+export function printDoc(doc: Doc): void {
+  const { svg } = standaloneSvg(doc, { background: '#ffffff', unit: 'pt' });
+  const frame = document.createElement('iframe');
+  frame.style.position = 'fixed';
+  frame.style.width = '0';
+  frame.style.height = '0';
+  frame.style.border = '0';
+  frame.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(frame);
+  const w = frame.contentWindow;
+  if (!w) return;
+  w.document.open();
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>ReactionSketch</title><style>@page{margin:15mm}html,body{margin:0}svg{max-width:100%;height:auto}</style></head><body>${svg}</body></html>`);
+  w.document.close();
+  setTimeout(() => {
+    w.focus();
+    w.print();
+    setTimeout(() => frame.remove(), 1000);
+  }, 100);
+}

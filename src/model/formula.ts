@@ -1,6 +1,6 @@
 // 分子式・分子量・精密質量 (レポートの実験項向け)
 import type { Doc, Id } from './types';
-import { ELEMENTS } from './elements';
+import { isotopeKey, massOfKey } from './elements';
 import { implicitH } from './graph';
 import { labelFormula } from './labelTokens';
 
@@ -31,36 +31,48 @@ export function formulaOf(doc: Doc, atomIds: Iterable<Id>): FormulaResult {
       }
       for (const [el, n] of Object.entries(f)) add(el, n);
     } else {
-      add(a.element, 1);
+      add(isotopeKey(a.element, a.isotope), 1);
       add('H', implicitH(doc, a));
     }
   }
   return { counts, charge, unknown };
 }
 
-/** Hill 方式の並び (C, H, その後アルファベット順) */
+/** 同位体の記号 (13C) を元素記号と質量数に */
+const splitIso = (k: string): [string, number] => {
+  const m = /^(\d+)([A-Z][a-z]?)$/.exec(k);
+  return m ? [m[2], +m[1]] : [k === 'D' || k === 'T' ? 'H' : k, k === 'D' ? 2 : k === 'T' ? 3 : 0];
+};
+
+/** Hill 方式の並び (C, H, その後アルファベット順)。同位体はその元素の直後 */
 export function hillOrder(counts: Record<string, number>): [string, number][] {
   const els = Object.keys(counts).filter((e) => counts[e] > 0);
-  const hasC = els.includes('C');
+  const hasC = els.some((e) => splitIso(e)[0] === 'C');
   els.sort((a, b) => {
+    const [ea, ma] = splitIso(a), [eb, mb] = splitIso(b);
     if (hasC) {
       const rank = (e: string) => (e === 'C' ? 0 : e === 'H' ? 1 : 2);
-      if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      if (rank(ea) !== rank(eb)) return rank(ea) - rank(eb);
     }
-    return a.localeCompare(b);
+    return ea.localeCompare(eb) || ma - mb;
   });
   return els.map((e) => [e, counts[e]]);
 }
 
+const SUPER = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+
+/** 分子式の記号の表示 (13C → ¹³C) */
+export const isoText = (k: string): string => k.replace(/^(\d+)/, (d) => [...d].map((c) => SUPER[+c]).join(''));
+
 export function formulaText(counts: Record<string, number>): string {
   return hillOrder(counts)
-    .map(([e, n]) => (n === 1 ? e : `${e}${n}`))
+    .map(([e, n]) => (n === 1 ? isoText(e) : `${isoText(e)}${n}`))
     .join('');
 }
 
 export function molecularWeight(counts: Record<string, number>): number {
   let m = 0;
-  for (const [e, n] of Object.entries(counts)) m += (ELEMENTS[e]?.mass ?? NaN) * n;
+  for (const [e, n] of Object.entries(counts)) m += massOfKey(e, false) * n;
   return m;
 }
 
@@ -68,7 +80,7 @@ const ELECTRON = 0.000548579909;
 
 export function exactMass(counts: Record<string, number>, charge = 0): number {
   let m = 0;
-  for (const [e, n] of Object.entries(counts)) m += (ELEMENTS[e]?.mono ?? NaN) * n;
+  for (const [e, n] of Object.entries(counts)) m += massOfKey(e, true) * n;
   return m - charge * ELECTRON;
 }
 

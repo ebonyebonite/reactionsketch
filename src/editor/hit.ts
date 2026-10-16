@@ -1,7 +1,8 @@
 // 当たり判定 (ポインタの下にある原子・結合・オブジェクト・ハンドル)
-import type { Anchor, Doc, Id } from '../model/types';
+import { isBoxObject, isLineShape, normBox, type Anchor, type BoxObject, type Doc, type Id } from '../model/types';
 import type { Scene } from '../render/scene';
 import { bracketPath } from '../render/scene';
+import { boxObjectBounds } from '../render/shapes';
 import type { Hover } from './store';
 
 function distToSeg(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
@@ -13,6 +14,29 @@ function distToSeg(px: number, py: number, x1: number, y1: number, x2: number, y
 
 function inBox(px: number, py: number, b: { x1: number; y1: number; x2: number; y2: number }, pad = 0): boolean {
   return px >= b.x1 - pad && px <= b.x2 + pad && py >= b.y1 - pad && py <= b.y2 + pad;
+}
+
+/** 箱のオブジェクトのハンドルの位置 (線は両端、それ以外は左上と右下) */
+export function boxHandles(o: BoxObject): { start: { x: number; y: number }; end: { x: number; y: number } } {
+  if (isLineShape(o)) return { start: { x: o.x, y: o.y }, end: { x: o.x + o.w, y: o.y + o.h } };
+  const b = normBox(o);
+  return { start: { x: b.x1, y: b.y1 }, end: { x: b.x2, y: b.y2 } };
+}
+
+/** 図形に当たったか。塗りのない四角・楕円は枠の線だけ (中の分子をクリックしやすく) */
+function hitBoxObject(o: BoxObject, x: number, y: number, tol: number): boolean {
+  if (isLineShape(o)) return distToSeg(x, y, o.x, o.y, o.x + o.w, o.y + o.h) < tol;
+  const b = normBox(o);
+  if (o.type === 'shape' && !o.fill && (o.kind === 'rect' || o.kind === 'roundrect')) {
+    if (!inBox(x, y, b, tol)) return false;
+    return Math.min(Math.abs(x - b.x1), Math.abs(x - b.x2), Math.abs(y - b.y1), Math.abs(y - b.y2)) < tol;
+  }
+  if (o.type === 'shape' && !o.fill && o.kind === 'ellipse') {
+    const rx = (b.x2 - b.x1) / 2 || 1, ry = (b.y2 - b.y1) / 2 || 1;
+    const r = Math.hypot((x - (b.x1 + b.x2) / 2) / rx, (y - (b.y1 + b.y2) / 2) / ry);
+    return Math.abs(r - 1) * Math.min(rx, ry) < tol;
+  }
+  return inBox(x, y, boxObjectBounds(o));
 }
 
 export interface HitOptions {
@@ -48,6 +72,10 @@ export function hitTest(doc: Doc, scene: Scene, x: number, y: number, tol: numbe
       } else if (o.type === 'bracket') {
         if (Math.hypot(o.x + o.w - x, o.y + o.h - y) < tol) return { kind: 'handle', id, which: 'end' };
         if (Math.hypot(o.x - x, o.y - y) < tol) return { kind: 'handle', id, which: 'start' };
+      } else if (isBoxObject(o)) {
+        const hd = boxHandles(o);
+        if (Math.hypot(hd.end.x - x, hd.end.y - y) < tol) return { kind: 'handle', id, which: 'end' };
+        if (Math.hypot(hd.start.x - x, hd.start.y - y) < tol) return { kind: 'handle', id, which: 'start' };
       }
     }
   }
@@ -134,6 +162,12 @@ export function hitTest(doc: Doc, scene: Scene, x: number, y: number, tol: numbe
         case 'plus':
           if (Math.hypot(o.x - x, o.y - y) < Math.max(tol, 5)) return { kind: 'object', id };
           break;
+        case 'shape':
+        case 'image':
+        case 'tlc':
+        case 'energy':
+          if (hitBoxObject(o, x, y, tol * 0.8)) return { kind: 'object', id };
+          break;
       }
     }
   }
@@ -166,8 +200,50 @@ export function itemsInRect(doc: Doc, scene: Scene, x1: number, y1: number, x2: 
       }
       case 'bracket': inside = inBox(o.x, o.y, box) && inBox(o.x + o.w, o.y + o.h, box); break;
       case 'plus': inside = inBox(o.x, o.y, box); break;
+      case 'shape':
+      case 'image':
+      case 'tlc':
+      case 'energy': {
+        const b = normBox(o);
+        inside = inBox(b.x1, b.y1, box) && inBox(b.x2, b.y2, box);
+        break;
+      }
     }
     if (inside) objects.add(id);
+  }
+  return { atoms, bonds, objects };
+}
+
+function inPolygon(x: number, y: number, poly: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** 投げ縄選択: 囲んだ原子 (と両端を囲んだ結合)、中心を囲んだオブジェクト */
+export function itemsInPolygon(doc: Doc, scene: Scene, poly: { x: number; y: number }[]) {
+  const atoms = new Set<Id>();
+  const bonds = new Set<Id>();
+  const objects = new Set<Id>();
+  for (const a of Object.values(doc.atoms)) if (inPolygon(a.x, a.y, poly)) atoms.add(a.id);
+  for (const b of Object.values(doc.bonds)) if (atoms.has(b.a1) && atoms.has(b.a2)) bonds.add(b.id);
+  for (const id of doc.order) {
+    const o = doc.objects[id];
+    if (!o) continue;
+    let c: { x: number; y: number } | null = null;
+    if (o.type === 'reaction') c = { x: (o.x1 + o.x2) / 2, y: (o.y1 + o.y2) / 2 };
+    else if (o.type === 'text') {
+      const g = scene.texts[id];
+      if (g) c = { x: (g.bbox.x1 + g.bbox.x2) / 2, y: (g.bbox.y1 + g.bbox.y2) / 2 };
+    } else if (o.type === 'curved') {
+      const g = scene.curved[id];
+      if (g) c = g.handle;
+    } else if (o.type === 'plus') c = { x: o.x, y: o.y };
+    else c = { x: o.x + o.w / 2, y: o.y + o.h / 2 };
+    if (c && inPolygon(c.x, c.y, poly)) objects.add(id);
   }
   return { atoms, bonds, objects };
 }

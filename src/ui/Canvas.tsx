@@ -1,7 +1,7 @@
 // 描画キャンバス: ポインタ操作 (マウス・タッチ・ペン) と各ツールの動作
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
-import type { Anchor, Bracket, CurvedArrow, Doc, Id, PlusSign, ReactionArrow, TextBox } from '../model/types';
-import { newId } from '../model/types';
+import type { Anchor, BondStereo, Bracket, CurvedArrow, Doc, Id, PlusSign, ReactionArrow, TextBox } from '../model/types';
+import { isBoxObject, isLineShape, newId } from '../model/types';
 import { ACS } from '../model/style';
 import {
   addChair, addRing, bestBondAngle, chainPoints, deleteSelection, emptySelection, expandToMolecules, findAtomNear, growBond,
@@ -12,7 +12,9 @@ import { bondBetween, componentOf, valenceError } from '../model/graph';
 import { buildScene, componentBox, textAnchorBox, type Scene } from '../render/scene';
 import { docBodySvg } from '../render/svg';
 import { arcThrough, anchorPos, arrowHead, curvedEnds } from '../render/arrows';
-import { hitTest, itemsInRect, textAnchorAt } from '../editor/hit';
+import { boxHandles, hitTest, itemsInPolygon, itemsInRect, textAnchorAt } from '../editor/hit';
+import { boxObjectBounds } from '../render/shapes';
+import { addImageFromBlob, makeBoxObject, makeDefaultObject } from '../editor/objects';
 import {
   activeTab, cancelTransient, commit, endTransient, getState, redo, setState, setView, toast, undo, updateTransient, useStore, type Hover,
 } from '../editor/store';
@@ -35,6 +37,10 @@ type Drag =
   | { kind: 'handle'; id: Id; which: 'bend' | 'from' | 'to' | 'start' | 'end'; base: Doc }
   | { kind: 'reaction'; start: Pt; cur: Pt }
   | { kind: 'bracket'; start: Pt; cur: Pt }
+  | { kind: 'shape'; start: Pt; cur: Pt }
+  | { kind: 'lasso'; pts: Pt[]; additive: boolean }
+  | { kind: 'rotsel'; c: Pt; a0: number; base: Doc; sel: Selection }
+  | { kind: 'scalesel'; c: Pt; d0: number; base: Doc; sel: Selection }
   | { kind: 'erase'; touched: boolean };
 
 /** 原子・結合を指す端ならその ID */
@@ -51,6 +57,29 @@ function nearerEnd(d: Doc, bondId: Id, p: Pt): Id {
   const b = d.bonds[bondId];
   const A = d.atoms[b.a1], B = d.atoms[b.a2];
   return Math.hypot(A.x - p.x, A.y - p.y) <= Math.hypot(B.x - p.x, B.y - p.y) ? b.a1 : b.a2;
+}
+
+/** 選択範囲の外枠 (回転・拡大縮小のハンドル用)。原子 1 つだけ・空なら null */
+function selectionBox(doc: Doc, scene: Scene, sel: Selection): { x1: number; y1: number; x2: number; y2: number } | null {
+  const atoms = selectedAtomIds(doc, sel);
+  // 原子 1 つだけ、またはオブジェクト 1 つだけ (それ自身のハンドルがある) なら出さない
+  if (atoms.size + sel.objects.size < 2 || (atoms.size === 0 && sel.objects.size < 2)) return null;
+  let b = { x1: Infinity, y1: Infinity, x2: -Infinity, y2: -Infinity };
+  const grow = (q: { x1: number; y1: number; x2: number; y2: number }) => {
+    b = { x1: Math.min(b.x1, q.x1), y1: Math.min(b.y1, q.y1), x2: Math.max(b.x2, q.x2), y2: Math.max(b.y2, q.y2) };
+  };
+  if (atoms.size) grow(componentBox(doc, [...atoms], scene.layouts));
+  for (const id of sel.objects) {
+    const q = objectBox(doc, scene, id);
+    if (q) grow(q);
+  }
+  return isFinite(b.x1) ? b : null;
+}
+
+/** 選択範囲のハンドルの位置 (回転は上、拡大縮小は右下) */
+function selectionHandles(b: { x1: number; y1: number; x2: number; y2: number }, z: number) {
+  const pad = 5;
+  return { rotate: { x: (b.x1 + b.x2) / 2, y: b.y1 - pad - 16 / z }, scale: { x: b.x2 + pad, y: b.y2 + pad }, pad };
 }
 
 export function Canvas() {
@@ -150,6 +179,7 @@ export function Canvas() {
       case 'curved':
         return { handlesFor, objects: true };
       case 'reaction':
+      case 'shape':
         return { handlesFor, atoms: false, bonds: false };
       case 'number':
         return { objects: false };
@@ -276,6 +306,24 @@ export function Canvas() {
 
     const d = activeTab().doc;
     const sc = buildScene(d);
+    // 選択範囲の回転・拡大縮小のハンドル
+    if (t.kind === 'select' || t.kind === 'lasso') {
+      const s0 = getState().selection;
+      const box = selectionBox(d, sc, s0);
+      if (box) {
+        const hd = selectionHandles(box, activeTab().view.zoom);
+        const c = { x: (box.x1 + box.x2) / 2, y: (box.y1 + box.y2) / 2 };
+        const r = tol(touchLike ? 16 : 9);
+        if (Math.hypot(p.x - hd.rotate.x, p.y - hd.rotate.y) < r) {
+          setD({ kind: 'rotsel', c, a0: Math.atan2(p.y - c.y, p.x - c.x), base: d, sel: s0 });
+          return;
+        }
+        if (Math.hypot(p.x - hd.scale.x, p.y - hd.scale.y) < r) {
+          setD({ kind: 'scalesel', c, d0: Math.max(1, Math.hypot(p.x - c.x, p.y - c.y)), base: d, sel: s0 });
+          return;
+        }
+      }
+    }
     const h = hitTest(d, sc, p.x, p.y, tol(touchLike ? 16 : 9), hitOpts());
     setState({ hover: h });
 
@@ -371,6 +419,27 @@ export function Canvas() {
       }
       case 'bracket': {
         setD({ kind: 'bracket', start: p, cur: p });
+        return;
+      }
+      case 'shape': {
+        if (h?.kind === 'object') {
+          const one = { atoms: new Set<Id>(), bonds: new Set<Id>(), objects: new Set([h.id]) };
+          setState({ selection: one });
+          setD({ kind: 'move', start: p, base: d, sel: one, moved: false });
+          return;
+        }
+        setD({ kind: 'shape', start: p, cur: p });
+        return;
+      }
+      case 'lasso': {
+        const s = getState().selection;
+        const inSel = h && ((h.kind === 'atom' && s.atoms.has(h.id)) || (h.kind === 'bond' && s.bonds.has(h.id)) || (h.kind === 'object' && s.objects.has(h.id)));
+        if (inSel) {
+          setD({ kind: 'move', start: p, base: d, sel: s, moved: false });
+          return;
+        }
+        if (!e.shiftKey) setState({ selection: emptySelection() });
+        setD({ kind: 'lasso', pts: [p], additive: e.shiftKey });
         return;
       }
       case 'text': {
@@ -519,13 +588,67 @@ export function Canvas() {
             ? { ...o, w: Math.max(4, p.x - o.x), h: Math.max(4, p.y - o.y) }
             : { ...o, x: Math.min(p.x, x2 - 4), y: Math.min(p.y, y2 - 4), w: Math.max(4, x2 - p.x), h: Math.max(4, y2 - p.y) };
           updateTransient(withObject(base, nb));
+        } else if (isBoxObject(o)) {
+          if (isLineShape(o)) {
+            const fixed = dr.which === 'end' ? { x: o.x, y: o.y } : { x: o.x + o.w, y: o.y + o.h };
+            let q = p;
+            if (!e.altKey) {
+              const ang = snapAngle(Math.atan2(p.y - fixed.y, p.x - fixed.x), SNAP);
+              const len = Math.hypot(p.x - fixed.x, p.y - fixed.y);
+              q = { x: fixed.x + Math.cos(ang) * len, y: fixed.y + Math.sin(ang) * len };
+            }
+            updateTransient(withObject(base, dr.which === 'end' ? { ...o, w: q.x - o.x, h: q.y - o.y } : { ...o, x: q.x, y: q.y, w: fixed.x - q.x, h: fixed.y - q.y }));
+          } else {
+            const hd = boxHandles(o);
+            const fixed = dr.which === 'end' ? hd.start : hd.end;
+            let w = Math.max(4, Math.abs(p.x - fixed.x)), h = Math.max(4, Math.abs(p.y - fixed.y));
+            // 画像は縦横比を保つ (Shift で自由)
+            if (o.type === 'image' && !e.shiftKey) {
+              const r = o.w / o.h || 1;
+              if (w / h > r) h = w / r;
+              else w = h * r;
+            }
+            const sx = dr.which === 'end' ? 1 : -1;
+            const nx = sx > 0 ? fixed.x : fixed.x - w, ny = sx > 0 ? fixed.y : fixed.y - h;
+            updateTransient(withObject(base, { ...o, x: nx, y: ny, w, h }));
+          }
         }
         return;
       }
       case 'reaction':
       case 'bracket':
+      case 'shape':
         setD({ ...dr, cur: p });
         return;
+      case 'rotsel': {
+        let ang = Math.atan2(p.y - dr.c.y, p.x - dr.c.x) - dr.a0;
+        if (!e.altKey) ang = snapAngle(ang, SNAP);
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        updateTransient(transformSelection(dr.base, dr.sel, (x, y) => [dr.c.x + (x - dr.c.x) * c - (y - dr.c.y) * sn, dr.c.y + (x - dr.c.x) * sn + (y - dr.c.y) * c]));
+        return;
+      }
+      case 'scalesel': {
+        const k = Math.max(0.1, Math.hypot(p.x - dr.c.x, p.y - dr.c.y) / dr.d0);
+        let next = transformSelection(dr.base, dr.sel, (x, y) => [dr.c.x + (x - dr.c.x) * k, dr.c.y + (y - dr.c.y) * k]);
+        // 図形・画像は大きさも変える
+        const objects = { ...next.objects };
+        for (const id of dr.sel.objects) {
+          const o = objects[id];
+          const ob = dr.base.objects[id];
+          if (o && ob && isBoxObject(o) && isBoxObject(ob) && !isLineShape(o)) {
+            const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+            objects[id] = { ...o, x: cx - (ob.w * k) / 2, y: cy - (ob.h * k) / 2, w: ob.w * k, h: ob.h * k };
+          }
+        }
+        next = { ...next, objects };
+        updateTransient(next);
+        return;
+      }
+      case 'lasso': {
+        const last = dr.pts[dr.pts.length - 1];
+        if (Math.hypot(p.x - last.x, p.y - last.y) > tol(3)) setD({ ...dr, pts: [...dr.pts, p] });
+        return;
+      }
       case 'erase': {
         const h = hitTest(d, buildScene(d), p.x, p.y, tol(), {});
         if (h && h.kind !== 'handle') {
@@ -667,13 +790,46 @@ export function Canvas() {
         commit(withObject(d, br));
         return;
       }
+      case 'shape': {
+        const kind = t.kind === 'shape' ? t.shape : 'rect';
+        const small = Math.hypot(p.x - dr.start.x, p.y - dr.start.y) < tol(8);
+        let o;
+        if (small) o = makeDefaultObject(kind, p.x, p.y);
+        else {
+          let q = p;
+          const line = kind === 'line' || kind === 'arrow' || kind === 'darrow' || kind === 'dashedArrow';
+          if (line && !e.altKey) {
+            const ang = snapAngle(Math.atan2(p.y - dr.start.y, p.x - dr.start.x), SNAP);
+            const len = Math.hypot(p.x - dr.start.x, p.y - dr.start.y);
+            q = { x: dr.start.x + Math.cos(ang) * len, y: dr.start.y + Math.sin(ang) * len };
+          } else if (!line && e.shiftKey) {
+            // Shift: 正方形・円
+            const sz = Math.max(Math.abs(p.x - dr.start.x), Math.abs(p.y - dr.start.y));
+            q = { x: dr.start.x + Math.sign(p.x - dr.start.x || 1) * sz, y: dr.start.y + Math.sign(p.y - dr.start.y || 1) * sz };
+          }
+          o = makeBoxObject(kind, dr.start.x, dr.start.y, q.x, q.y);
+        }
+        commit(withObject(d, o), { atoms: new Set(), bonds: new Set(), objects: new Set([o.id]) });
+        return;
+      }
+      case 'rotsel':
+      case 'scalesel':
+        endTransient();
+        return;
+      case 'lasso': {
+        if (dr.pts.length < 3) return;
+        const items = itemsInPolygon(d, buildScene(d), dr.pts);
+        const base = dr.additive ? getState().selection : emptySelection();
+        setState({ selection: mergeSel(base, items) });
+        return;
+      }
       case 'erase':
         if (dr.touched) endTransient();
         return;
     }
   };
 
-  const finishBond = (dr: Extract<Drag, { kind: 'bond' }>, p: Pt, t: { order: 1 | 2 | 3; stereo: 'none' | 'wedge' | 'hash' | 'wavy' | 'bold' }, freeAngle: boolean) => {
+  const finishBond = (dr: Extract<Drag, { kind: 'bond' }>, p: Pt, t: { order: 1 | 2 | 3; stereo: BondStereo }, freeAngle: boolean) => {
     const d = activeTab().doc;
     // 結合をクリック: 次数を上げる / 立体表記を切り替える
     if (!dr.moved && dr.downHover?.kind === 'bond') {
@@ -897,6 +1053,21 @@ export function Canvas() {
     const ang = snapAngle(Math.atan2(drag.cur.y - drag.start.y, drag.cur.x - drag.start.x), SNAP);
     previews.push(<line key="ra" x1={drag.start.x} y1={drag.start.y} x2={drag.start.x + Math.cos(ang) * len} y2={drag.start.y + Math.sin(ang) * len} stroke={hl} strokeWidth={1} />);
   }
+  if (drag.kind === 'shape') {
+    const kind = tool.kind === 'shape' ? tool.shape : 'rect';
+    if (kind === 'line' || kind === 'arrow' || kind === 'darrow' || kind === 'dashedArrow') {
+      previews.push(<line key="sl" x1={drag.start.x} y1={drag.start.y} x2={drag.cur.x} y2={drag.cur.y} stroke={hl} strokeWidth={0.9} />);
+    } else {
+      const x = Math.min(drag.start.x, drag.cur.x), y = Math.min(drag.start.y, drag.cur.y);
+      const w = Math.abs(drag.cur.x - drag.start.x), h = Math.abs(drag.cur.y - drag.start.y);
+      previews.push(kind === 'ellipse' || kind === 'orbitalS'
+        ? <ellipse key="se" cx={x + w / 2} cy={y + h / 2} rx={w / 2} ry={h / 2} fill="none" stroke={hl} strokeWidth={0.8} strokeDasharray="3 2" />
+        : <rect key="sr" x={x} y={y} width={w} height={h} fill="none" stroke={hl} strokeWidth={0.8} strokeDasharray="3 2" />);
+    }
+  }
+  if (drag.kind === 'lasso' && drag.pts.length > 1) {
+    previews.push(<polygon key="ls" points={drag.pts.map((q) => `${q.x},${q.y}`).join(' ')} fill="rgba(47,124,246,0.08)" stroke={hl} strokeWidth={1 / z} strokeDasharray={`${4 / z} ${3 / z}`} />);
+  }
   if (drag.kind === 'bracket') {
     const x = Math.min(drag.start.x, drag.cur.x), y = Math.min(drag.start.y, drag.cur.y);
     previews.push(<rect key="bk" x={x} y={y} width={Math.abs(drag.cur.x - drag.start.x)} height={Math.abs(drag.cur.y - drag.start.y)} fill="none" stroke={hl} strokeWidth={0.8} strokeDasharray="3 2" />);
@@ -990,6 +1161,34 @@ export function Canvas() {
     } else if (o.type === 'bracket') {
       handleEls.push(<rect key={`h1${id}`} x={o.x - r * 0.7} y={o.y - r * 0.7} width={r * 1.4} height={r * 1.4} fill={hl} opacity={0.6} />);
       handleEls.push(<rect key={`h2${id}`} x={o.x + o.w - r * 0.7} y={o.y + o.h - r * 0.7} width={r * 1.4} height={r * 1.4} fill={hl} opacity={0.6} />);
+    } else if (isBoxObject(o)) {
+      const hd = boxHandles(o);
+      for (const [k, q] of [['s', hd.start], ['e', hd.end]] as const) {
+        handleEls.push(<rect key={`hx${k}${id}`} x={q.x - r * 0.8} y={q.y - r * 0.8} width={r * 1.6} height={r * 1.6} fill="#fff" stroke={hl} strokeWidth={0.7} />);
+      }
+    }
+  }
+  // 選択範囲の枠と、回転・拡大縮小のハンドル
+  if ((tool.kind === 'select' || tool.kind === 'lasso') && (drag.kind === 'none' || drag.kind === 'rotsel' || drag.kind === 'scalesel')) {
+    const box = selectionBox(doc, scene, selection);
+    if (box) {
+      const hd = selectionHandles(box, z);
+      const r = 3.2 / Math.sqrt(z / 2.2);
+      handleEls.push(<rect key="selbox" x={box.x1 - hd.pad} y={box.y1 - hd.pad} width={box.x2 - box.x1 + hd.pad * 2} height={box.y2 - box.y1 + hd.pad * 2} fill="none" stroke={hl} strokeOpacity={0.55} strokeWidth={0.8 / z} strokeDasharray={`${4 / z} ${3 / z}`} pointerEvents="none" />);
+      handleEls.push(<line key="selrl" x1={hd.rotate.x} y1={box.y1 - hd.pad} x2={hd.rotate.x} y2={hd.rotate.y} stroke={hl} strokeWidth={0.8 / z} strokeOpacity={0.6} />);
+      handleEls.push(
+        <g key="selrot" className="sel-handle rotate">
+          <title>ドラッグで回転 (15° 刻み、Alt で自由)</title>
+          <circle cx={hd.rotate.x} cy={hd.rotate.y} r={r} fill="#fff" stroke={hl} strokeWidth={0.8} />
+          <path d={`M${hd.rotate.x - r * 0.45} ${hd.rotate.y - r * 0.1} A${r * 0.5} ${r * 0.5} 0 1 1 ${hd.rotate.x} ${hd.rotate.y + r * 0.5}`} fill="none" stroke={hl} strokeWidth={0.6} />
+        </g>,
+      );
+      handleEls.push(
+        <g key="selscale" className="sel-handle scale">
+          <title>ドラッグで拡大・縮小</title>
+          <rect x={hd.scale.x - r * 0.8} y={hd.scale.y - r * 0.8} width={r * 1.6} height={r * 1.6} fill="#fff" stroke={hl} strokeWidth={0.8} />
+        </g>,
+      );
     }
   }
   // 原子価エラー
@@ -1002,7 +1201,21 @@ export function Canvas() {
     drag.kind === 'pan' ? 'grabbing' : tool.kind === 'select' ? (hover ? 'move' : 'default') : tool.kind === 'eraser' ? 'not-allowed' : tool.kind === 'text' ? 'text' : 'crosshair';
 
   return (
-    <div id="canvas-host" ref={hostRef} className="canvas-host">
+    <div
+      id="canvas-host"
+      ref={hostRef}
+      className="canvas-host"
+      onDragOver={(e) => {
+        if ([...e.dataTransfer.items].some((it) => it.kind === 'file')) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        const files = [...e.dataTransfer.files].filter((fl) => fl.type.startsWith('image/'));
+        if (!files.length) return;
+        e.preventDefault();
+        const p = toDoc(e.clientX, e.clientY);
+        files.forEach((fl, i) => addImageFromBlob(fl, { x: p.x + i * 20, y: p.y + i * 20 }).catch((err: Error) => toast(err.message, 'error')));
+      }}
+    >
       <svg
         ref={svgRef}
         className="canvas"
@@ -1102,5 +1315,10 @@ export function objectBox(doc: Doc, scene: Scene, id: Id) {
       return { x1: o.x, y1: o.y, x2: o.x + o.w, y2: o.y + o.h };
     case 'plus':
       return { x1: o.x - 4, y1: o.y - 4, x2: o.x + 4, y2: o.y + 4 };
+    case 'shape':
+    case 'image':
+    case 'tlc':
+    case 'energy':
+      return boxObjectBounds(o);
   }
 }

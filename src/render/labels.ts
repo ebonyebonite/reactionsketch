@@ -121,7 +121,7 @@ export function layoutAtom(doc: Doc, atom: Atom): AtomLayout {
   const deg = angles.length;
   // 炭素は隠す。ただし 2 原子だけの小さな分子 (CH3Br, CH3OH など) の末端は H3C と書く
   const isHiddenCarbon =
-    atom.label === '*' || !atom.label && atom.element === 'C' && !atom.showLabel && deg > 0 && !(deg === 1 && componentOf(doc, atom.id).length <= 2);
+    atom.label === '*' || !atom.label && atom.element === 'C' && !atom.showLabel && !atom.isotope && deg > 0 && !(deg === 1 && componentOf(doc, atom.id).length <= 2);
   const baseY = atom.y + (CAP_HEIGHT * SIZE) / 2;
   const glyphs: Glyph[] = [];
   let clip: Box | null = null;
@@ -176,12 +176,21 @@ export function layoutAtom(doc: Doc, atom: Atom): AtomLayout {
     }
     right = x;
     let left = x0;
+    // 同位体の質量数 (元素記号の左上の上付き)
+    let isoTop = Infinity;
+    if (atom.isotope && !atom.label) {
+      const iso = String(atom.isotope);
+      left -= textWidth(iso, SUB);
+      const iy = baseY - SIZE * 0.42;
+      glyphs.push({ text: iso, x: left, y: iy, size: SUB });
+      isoTop = iy - CAP_HEIGHT * SUB;
+    }
     for (const r of [...before].reverse()) {
       left -= runWidth(r);
       glyphs.push({ text: r.text, x: left, y: r.sub ? baseY + SUB_DROP : baseY, size: r.sub ? SUB : SIZE });
     }
     const capH = CAP_HEIGHT * SIZE;
-    top = atom.y - capH / 2;
+    top = Math.min(atom.y - capH / 2, isoTop);
     let bottom = atom.y + capH / 2 + (after.concat(before).some((r) => r.sub) ? SUB_DROP : 0);
     if (vertical) {
       const wv = vertical.runs.reduce((s, r) => s + runWidth(r), 0);

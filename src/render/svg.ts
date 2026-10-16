@@ -8,6 +8,9 @@ import { cachedStereo } from './stereoCache';
 import { freeDirections, neighborAngles } from './labels';
 import { doubleBondSide, NEWMAN_R } from './bonds';
 import { atomInk } from '../model/colors';
+import { isBoxObject } from '../model/types';
+import { energySvg, imageSvg, shapeSvg, tlcSvg, type TextFn } from './shapes';
+import { hybridization, oxidationNumber, romanOx } from '../model/atomInfo';
 
 const f = (v: number) => (Math.round(v * 100) / 100).toString();
 
@@ -19,6 +22,20 @@ export function esc(s: string): string {
 const HL_WIDTH = 7;
 
 const FONT = `font-family="${ACS.fontFamily}, 'Yu Gothic', 'Hiragino Sans', sans-serif"`;
+
+const plainText: TextFn = (x, y, text, size, color, anchor = 'start') =>
+  `<text x="${f(x)}" y="${f(y)}" font-size="${f(size)}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''} ${FONT} fill="${color}">${esc(text)}</text>`;
+
+/** 図形・画像・TLC・エネルギー図 (分子より後ろに描く) */
+function boxObjectSvg(o: Doc['objects'][string]): string {
+  switch (o.type) {
+    case 'shape': return shapeSvg(o);
+    case 'image': return imageSvg(o);
+    case 'tlc': return tlcSvg(o, plainText);
+    case 'energy': return energySvg(o, plainText);
+    default: return '';
+  }
+}
 
 function textGeomSvg(g: TextGeom, color = '#000'): string {
   let out = '';
@@ -45,6 +62,12 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
   const scene = buildScene(doc);
   const lw = f(ACS.lineWidth);
   const parts: string[] = [];
+
+  // 図形・画像は分子の後ろ (塗った四角を背景にできる)
+  for (const oid of doc.order) {
+    const o = doc.objects[oid];
+    if (o && isBoxObject(o)) parts.push(boxObjectSvg(o));
+  }
 
   // 強調 (蛍光ペン): 結合の太い線と原子の丸を、すべての線と文字より後ろに
   for (const b of Object.values(doc.bonds)) {
@@ -137,11 +160,32 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
     }
   }
 
+  // 原子の情報 (混成・酸化数・通し番号)
+  if (doc.settings.atomInfo) {
+    const mode = doc.settings.atomInfo;
+    let k = 0;
+    for (const a of Object.values(doc.atoms)) {
+      const l = scene.layouts[a.id];
+      if (!l || a.label === '*') continue;
+      k++;
+      const t = mode === 'index' ? String(k) : mode === 'hybrid' ? hybridization(doc, a.id)?.replace('2', '²').replace('3', '³') : (() => {
+        const ox = oxidationNumber(doc, a.id);
+        return ox === null || (a.element === 'H') ? undefined : romanOx(ox);
+      })();
+      if (!t) continue;
+      const occ = neighborAngles(doc, a);
+      if (l.visible) occ.push(0, Math.PI);
+      const [dir] = freeDirections(occ, 1, [-Math.PI / 4]);
+      const r = l.visible ? 9 : 6;
+      parts.push(`<text x="${f(a.x + Math.cos(dir) * r)}" y="${f(a.y + Math.sin(dir) * r + 2)}" font-size="5.6" text-anchor="middle" ${FONT} fill="#2563eb">${esc(t)}</text>`);
+    }
+  }
+
   // オブジェクト
   for (const oid of doc.order) {
     const o = doc.objects[oid];
     if (!o) continue;
-    const ink = o.color ?? '#000';
+    const ink = ('color' in o && o.color) || '#000';
     if (o.type === 'curved') {
       const g = scene.curved[oid];
       if (!g) continue;
@@ -150,7 +194,8 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
       parts.push(`<polygon points="${head.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}"/>`);
     } else if (o.type === 'reaction') {
       const r = scene.reaction[oid];
-      for (const ln of r.geom.lines) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="${ink}" stroke-width="${lw}"/>`);
+      const dash = r.geom.dashed ? ' stroke-dasharray="3 2"' : '';
+      for (const ln of r.geom.lines) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="${ink}" stroke-width="${lw}"${dash}/>`);
       for (const h of r.geom.heads) parts.push(`<polygon points="${h.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}"/>`);
       for (const d of r.geom.openHeads) parts.push(`<path d="${d}" fill="none" stroke="${ink}" stroke-width="${lw}" stroke-linejoin="miter"/>`);
       for (const ln of r.geom.cross) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="${ink}" stroke-width="${f(ACS.lineWidth * 1.3)}"/>`);

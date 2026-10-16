@@ -1,4 +1,5 @@
 // 元素データと略号 (官能基・保護基) の定義
+import { PERIODIC_BY_SYMBOL } from './periodic';
 
 export interface ElementInfo {
   /** 取りうる原子価 (小さい順)。暗黙の水素の計算に使う */
@@ -63,8 +64,43 @@ export const ELEMENTS: Record<string, ElementInfo> = {
   Bi: { valences: [3, 5], mass: 208.98, mono: 208.9803987 },
 };
 
+/** よく使う同位体の質量 (元素記号 → 質量数 → 質量) */
+export const ISOTOPES: Record<string, Record<number, number>> = {
+  H: { 2: 2.0141017781, 3: 3.0160492779 },
+  C: { 11: 11.0114336, 12: 12, 13: 13.0033548351, 14: 14.0032419884 },
+  N: { 14: 14.0030740048, 15: 15.0001088982 },
+  O: { 16: 15.9949146196, 17: 16.9991317566, 18: 17.9991596128 },
+  F: { 18: 18.000938, 19: 18.9984031627 },
+  P: { 31: 30.9737619986, 32: 31.97390764 },
+  S: { 32: 31.9720711744, 33: 32.9714589099, 34: 33.9678670, 35: 34.96903231 },
+  Cl: { 35: 34.968852682, 37: 36.965902602 },
+  Br: { 79: 78.9183376, 81: 80.9162897 },
+  I: { 123: 122.905589, 125: 124.9046294, 127: 126.9044719, 131: 130.9061246 },
+  Si: { 29: 28.9764946649, 30: 29.973770136 },
+  B: { 10: 10.0129369, 11: 11.0093054 },
+  Li: { 6: 6.0151228874, 7: 7.0160034366 },
+};
+
+/** 同位体を表す記号 (分子式の集計用、例: 13C) */
+export const isotopeKey = (element: string, mass?: number): string => (mass ? `${mass}${element}` : element);
+
+/** 分子式の記号 (C・13C・D) の質量。同位体は原子量も精密質量もその同位体の質量 */
+export function massOfKey(key: string, mono: boolean): number {
+  const m = /^(\d+)([A-Z][a-z]?)$/.exec(key);
+  if (m) {
+    const iso = ISOTOPES[m[2]]?.[+m[1]];
+    if (iso !== undefined) return iso;
+    // 表にない同位体は質量数で近似
+    return ELEMENTS[m[2]] || PERIODIC_BY_SYMBOL[m[2]] ? +m[1] : NaN;
+  }
+  const e = ELEMENTS[key];
+  if (e) return mono ? e.mono : e.mass;
+  // 原子価の表にない元素 (ランタノイドなど) は周期表の原子量で
+  return PERIODIC_BY_SYMBOL[key]?.mass ?? NaN;
+}
+
 export function isElement(sym: string): boolean {
-  return sym in ELEMENTS;
+  return sym in ELEMENTS || sym in PERIODIC_BY_SYMBOL;
 }
 
 export interface Abbreviation {

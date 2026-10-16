@@ -5,6 +5,9 @@ import { withObject, deleteSelection, emptySelection } from '../model/edit';
 import { activeTab, cancelTransient, endTransient, setState, useStore } from '../editor/store';
 import { setAtomFromInput } from '../editor/actions';
 
+/** 文字入力で使う記号 (クリックでカーソル位置に入れる) */
+const SYMBOLS = ['°C', 'Δ', 'hν', '→', '⇌', '‡', '±', '×', '·', '≈', '≤', '≥', 'α', 'β', 'γ', 'δ', 'ε', 'λ', 'μ', 'π', 'σ', 'ν', 'Ω', '⊕', '⊖', '•', '′', '″', '%', '‰'];
+
 export function TextEditor() {
   const editing = useStore((s) => s.editing);
   const [value, setValue] = useState('');
@@ -111,6 +114,32 @@ export function TextEditor() {
             if (e.key === 'Enter') finish(true);
           }}
         />
+      )}
+      {multiline && (
+        <div className="symbol-bar" role="toolbar" aria-label="記号">
+          {SYMBOLS.map((sym) => (
+            <button
+              key={sym}
+              type="button"
+              className="sym"
+              // フォーカスを入力欄に残したまま、カーソル位置に入れる
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const el = ref.current;
+                if (!el) return;
+                const a = el.selectionStart ?? value.length, b = el.selectionEnd ?? value.length;
+                const next = value.slice(0, a) + sym + value.slice(b);
+                setValue(next);
+                setTimeout(() => {
+                  el.focus();
+                  el.setSelectionRange(a + sym.length, a + sym.length);
+                }, 0);
+              }}
+            >
+              {sym}
+            </button>
+          ))}
+        </div>
       )}
       <div className="hint">{hint}</div>
     </div>

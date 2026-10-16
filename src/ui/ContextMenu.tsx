@@ -5,9 +5,11 @@ import { expandToMolecules, updateAtom, updateBond, withObject } from '../model/
 import { activeTab, commit, getState, redo, setState, undo, useStore } from '../editor/store';
 import {
   addCompoundNumber, addRepeatBracket, alignReactionAtoms, suggestConditionsForScheme, balanceReactionCoefficients, setSelectedCoefficient, applyArrowsToNext, proposeMechanismForScheme, autoLayoutScheme, cleanStructure, copySelection, deleteSelected, duplicateSelection, openSpectra, retrosynthesisForSelection, predictProductsForScheme, saltifySelected, splitIonicSelected, neutralizeSelected,
-  flipSelection, pasteFromClipboard, polymerizeSelected, selectAll, applyColor, toggleElementColors,
+  flipSelection, pasteFromClipboard, polymerizeSelected, selectAll, applyColor, toggleElementColors, openIsomersForSelection,
 } from '../editor/actions';
 import { HIGHLIGHT_COLORS, INK_COLORS, type NamedColor } from '../model/colors';
+import { reorderSelected } from '../editor/objects';
+import { fragmentAtBond } from '../editor/fragmentTool';
 import { exportCurrent } from './TopBar';
 
 function Item({ children, onClick, kbd }: { children: ReactNode; onClick: () => void; kbd?: string }) {
@@ -113,9 +115,11 @@ export function ContextMenu() {
     sections.push(
       <div key="bond">
         <div className="ctx-title">結合</div>
-        <Chips items={[['単', () => set({ order: 1, stereo: 'none' })], ['二重', () => set({ order: 2, stereo: 'none' })], ['三重', () => set({ order: 3, stereo: 'none' })], ['くさび', () => set({ order: 1, stereo: 'wedge' })], ['破線', () => set({ order: 1, stereo: 'hash' })], ['波線', () => set({ order: 1, stereo: 'wavy' })]]} />
+        <Chips items={[['単', () => set({ order: 1, stereo: 'none' })], ['二重', () => set({ order: 2, stereo: 'none' })], ['三重', () => set({ order: 3, stereo: 'none' })], ['くさび', () => set({ order: 1, stereo: 'wedge' })], ['破線くさび', () => set({ order: 1, stereo: 'hash' })], ['波線', () => set({ order: 1, stereo: 'wavy' })]]} />
+        <Chips items={[['部分結合', () => set({ order: 1, stereo: 'dashed' })], ['水素結合', () => set({ order: 1, stereo: 'hbond' })], ['配位 →', () => set({ order: 1, stereo: 'dative' })], ['中抜き', () => set({ order: 1, stereo: 'hollow' })], ['太線', () => set({ order: 1, stereo: 'bold' })]]} />
         {b.order === 2 && <Chips items={(['auto', 'left', 'center', 'right'] as const).map((p) => [{ auto: '二重線: 自動', left: '左', center: '中央', right: '右' }[p], () => set({ doublePos: p })] as [string, () => void])} />}
         {(b.stereo === 'wedge' || b.stereo === 'hash') && <Item onClick={() => set({ a1: b.a2, a2: b.a1 })}>くさびの向きを反転</Item>}
+        {b.order === 1 && <Item onClick={() => fragmentAtBond(b.id)}>この結合で開裂 (MS の m/z を書く)</Item>}
       </div>,
     );
   }
@@ -133,7 +137,7 @@ export function ContextMenu() {
         </div>,
       );
     } else if (o.type === 'reaction') {
-      const kinds: [ReactionArrowKind, string][] = [['forward', '→'], ['equilibrium', '⇌'], ['retro', '⇒'], ['resonance', '↔'], ['nogo', '→×']];
+      const kinds: [ReactionArrowKind, string][] = [['forward', '→'], ['equilibrium', '⇌'], ['unbalanced', '⇌偏'], ['retro', '⇒'], ['resonance', '↔'], ['dashed', '⇢'], ['nogo', '→×']];
       sections.push(
         <div key="reaction">
           <div className="ctx-title">反応矢印</div>
@@ -171,6 +175,12 @@ export function ContextMenu() {
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); cleanStructure(); }} kbd="Ctrl+Shift+K">構造を整える</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); openSpectra(); }}>物性・スペクトル (NMR・IR・MS) を予測</Item>
         <Item onClick={() => { setState({ selection: expandToMolecules(d, getState().selection) }); retrosynthesisForSelection(); }}>逆合成を提案</Item>
+        <Chips items={[
+          ['立体異性体', () => { setState({ selection: expandToMolecules(d, getState().selection) }); openIsomersForSelection('stereo'); }],
+          ['共鳴構造', () => { setState({ selection: expandToMolecules(d, getState().selection) }); openIsomersForSelection('resonance'); }],
+          ['互変異性体', () => { setState({ selection: expandToMolecules(d, getState().selection) }); openIsomersForSelection('tautomer'); }],
+          ['3D 表示', () => { const s2 = expandToMolecules(d, getState().selection); setState({ selection: s2, view3dFor: [...s2.atoms] }); }],
+        ]} />
         <Item onClick={() => atomId && addCompoundNumber(atomId)}>化合物番号を付ける</Item>
         <div className="ctx-sub">塩</div>
         <Chips items={[['Na 塩', () => withMol(() => saltifySelected('Na'))], ['K 塩', () => withMol(() => saltifySelected('K'))], ['塩酸塩', () => withMol(() => saltifySelected('Cl'))], ['イオンに分ける', () => withMol(splitIonicSelected)], ['中性に戻す', () => withMol(neutralizeSelected)]]} />
@@ -205,6 +215,13 @@ export function ContextMenu() {
             <ColorChips colors={HIGHLIGHT_COLORS} noneLabel="強調なし" onPick={(v) => forTarget(() => applyColor('highlight', v))} />
           </>
         )}
+      </div>,
+    );
+  }
+  if (t?.kind === 'object' && d.objects[t.id]) {
+    sections.push(
+      <div key="order">
+        <Chips items={[['最前面へ', () => reorderSelected('front')], ['最背面へ', () => reorderSelected('back')]]} />
       </div>,
     );
   }

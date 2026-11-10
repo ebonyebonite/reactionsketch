@@ -252,7 +252,7 @@ export async function buildFromScript(text: string, opts: BuildOptions = {}): Pr
   const lookup = (term: string) => {
     if (!cache.has(term)) {
       cache.set(term, resolve(term).then((s) => s || null).catch((e: unknown) => {
-        warnings.push(`「${term}」が見つからないため、名前のまま置きました${e instanceof Error && e.message ? ` (${e.message.split('。')[0]})` : ''}`);
+        warnings.push(`「${term}」が見つからないため、名前のまま置きました${e instanceof Error && e.message && !e.message.includes(`「${term}」`) ? ` (${e.message.split('。')[0]})` : ''}`);
         return null;
       }));
     }

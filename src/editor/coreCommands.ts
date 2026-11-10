@@ -125,7 +125,7 @@ const INSERT: Command[] = [
 ];
 
 const AUTO: Command[] = [
-  { id: 'auto.text', title: 'テキストから描く… (名前・示性式・反応式をまとめて)', group: '自動描画', section: 'テキストから', keywords: ['てきすと', 'text', '自動', 'まとめて', '示性式'], description: '化合物名・示性式・反応式の文章からまとめて描く', run: () => openOverlay({ kind: 'autodraw' }) },
+  { id: 'auto.text', title: 'テキストから描く…', group: '自動描画', section: 'テキストから', keywords: ['てきすと', 'text', '自動', 'まとめて', '示性式'], description: '化合物名・示性式・反応式 (A -> B ; 試薬) を何行でも書いて、まとめて描く', run: () => openOverlay({ kind: 'autodraw' }) },
   { id: 'suggest.predict', title: '生成物を予測 (原料 + 試薬 →)', group: '自動描画', section: '反応', keywords: ['よそく', 'predict', 'product'], run: predictProductsForScheme },
   { id: 'suggest.mechanism', title: '反応機構を描く (曲がった矢印)', group: '自動描画', section: '反応', keywords: ['きこう', 'mechanism', '提案'], run: proposeMechanismForScheme },
   { id: 'suggest.conditions', title: '反応条件・試薬を提案', group: '自動描画', section: '反応', keywords: ['じょうけん', 'conditions', 'reagent', '触媒'], run: suggestConditionsForScheme },
@@ -137,8 +137,8 @@ const AUTO: Command[] = [
   { id: 'suggest.resonance', title: '共鳴構造を描く (曲がった矢印つき)', group: '自動描画', section: '構造', keywords: ['きょうめい', 'resonance'], run: () => openIsomersForSelection('resonance') },
   { id: 'suggest.tautomer', title: '互変異性体を探す', group: '自動描画', section: '構造', keywords: ['ごへん', 'tautomer'], run: () => openIsomersForSelection('tautomer') },
   { id: 'edit.clean', title: '構造を整える', group: '自動描画', section: '整形', shortcut: 'Ctrl+Shift+K', keywords: ['ととのえる', 'clean', '自動配置'], description: '結合の長さ・角度をそろえて構造をきれいにする', run: cleanStructure },
-  { id: 'edit.layout', title: '反応式を並べる', group: '自動描画', section: '整形', shortcut: 'Ctrl+L', keywords: ['ならべる', 'layout', '整列'], description: '原料・矢印・生成物を横一列に自動で並べる', run: autoLayoutScheme },
-  { id: 'edit.next', title: '次の構造を作る', group: '自動描画', section: '整形', shortcut: 'Ctrl+Enter', keywords: ['つぎ', 'next', '中間体', '矢印を適用'], description: '曲がった矢印どおりに電子を動かした中間体・生成物を作る', run: applyArrowsToNext },
+  { id: 'edit.layout', title: '反応式を並べる', group: '自動描画', section: '整形', shortcut: 'Ctrl+L', keywords: ['ならべる', 'layout', '整列'], description: '行の構造を保って原料・矢印・生成物を並べ直す (折り返しの幅は設定で変更。選択があればその範囲だけ)', run: autoLayoutScheme },
+  { id: 'edit.next', title: '次の構造を作る (曲がった矢印を適用)', group: '自動描画', section: '反応', shortcut: 'Ctrl+Enter', keywords: ['つぎ', 'next', '中間体', '矢印を適用'], description: '曲がった矢印どおりに電子を動かした中間体・生成物を作る', run: applyArrowsToNext },
 ];
 
 const CALC: Command[] = [

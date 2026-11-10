@@ -15,7 +15,12 @@ export interface Prefs {
   recentCommands: string[];
   /** 検索欄の履歴 (新しい順、最大 10) */
   searchHistory: string[];
+  /** 自動整列 (Ctrl+L) の折り返し幅。none は折り返さない */
+  layoutWidth: LayoutWidth;
 }
+
+export type LayoutWidth = 'none' | 'a4' | 'a4wide' | 'half' | 'slide';
+const LAYOUT_WIDTHS: LayoutWidth[] = ['none', 'a4', 'a4wide', 'half', 'slide'];
 
 const KEY = 'reactionsketch.prefs.v1';
 const RECENT_MAX = 8;
@@ -29,6 +34,7 @@ const DEFAULTS: Prefs = {
   tourDone: false,
   recentCommands: [],
   searchHistory: [],
+  layoutWidth: 'none',
 };
 
 const strings = (v: unknown, max: number): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, max) : []);
@@ -44,6 +50,7 @@ function sanitize(raw: unknown): Prefs {
     tourDone: v.tourDone === true,
     recentCommands: strings(v.recentCommands, RECENT_MAX),
     searchHistory: strings(v.searchHistory, HISTORY_MAX),
+    layoutWidth: LAYOUT_WIDTHS.includes(v.layoutWidth as LayoutWidth) ? (v.layoutWidth as LayoutWidth) : DEFAULTS.layoutWidth,
   };
 }
 

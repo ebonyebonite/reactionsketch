@@ -36,6 +36,7 @@ export function SettingsDialog() {
   const theme = usePrefs((p) => p.theme);
   const uiScale = usePrefs((p) => p.uiScale);
   const showGrid = usePrefs((p) => p.showGrid);
+  const layoutWidth = usePrefs((p) => p.layoutWidth);
   const exp = useSyncExternalStore(subscribeExportPrefs, getExportPrefs, getExportPrefs);
   const saltStyle = useStore((s) => s.saltStyle);
   const saltStructure = useStore((s) => s.saltStructure);
@@ -74,6 +75,9 @@ export function SettingsDialog() {
         </Row>
         <Row label="多原子イオン">
           <label className="check"><input type="checkbox" checked={saltStructure} onChange={(e) => saveSaltPref({ saltStructure: e.target.checked })} />構造式で描く</label>
+        </Row>
+        <Row label="自動整列の折り返し幅" hint="Ctrl+L で並べるとき、この幅を超える行を矢印の後ろで折り返す">
+          <Segmented<Prefs['layoutWidth']> label="自動整列の折り返し幅" value={layoutWidth} options={[['none', '折り返さない'], ['a4', 'A4'], ['a4wide', 'A4 広め'], ['half', '半分'], ['slide', 'スライド']]} onChange={(v) => setPrefs({ layoutWidth: v })} />
         </Row>
         <Row label="反応式の範囲">
           <label className="check"><input type="checkbox" checked={showSchemes} onChange={(e) => saveShowSchemes(e.target.checked)} />常に表示する</label>

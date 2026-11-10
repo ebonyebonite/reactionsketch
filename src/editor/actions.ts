@@ -23,6 +23,8 @@ import { buildSaltDoc, parseSaltQuery, saltFormula, saltNameJa, type Salt } from
 import { counterIon, neutralize, splitIonic, toSalt } from '../model/saltOps';
 import { asRepeatUnit, layoutRepeatUnit, monomerToRepeatUnit, polymerizableBond, repeatUnitBracket } from '../model/polymer';
 import { sanitizeDoc } from '../io/sanitize';
+import { detectRows, layoutScheme, PAGE_WIDTHS } from '../auto/layout';
+import { getPrefs, type LayoutWidth } from './prefs';
 
 export const doc = (): Doc => activeTab().doc;
 
@@ -552,15 +554,58 @@ export function renumberCompounds(): void {
 
 // ---- 反応スキームの自動配置 ----
 
-/** 分子・＋・反応矢印を左から順に、上下中央をそろえて等間隔に並べる */
+/** 反応式を行の構造を保って並べる (Ctrl+L)。折り返しの幅は設定に従う。選択があればその範囲だけ */
 export function autoLayoutScheme(): void {
+  layoutSchemeWithWidth(getPrefs().layoutWidth);
+}
+
+export const LAYOUT_WIDTH_NAMES: Record<LayoutWidth, string> = { none: '折り返しなし', a4: 'A4 幅', a4wide: 'A4 広め', half: '半分の幅', slide: 'スライド幅' };
+
+/** 選択があれば layoutScheme の only に渡す形 */
+export function selectionScope(): Selection | undefined {
+  const s = getState().selection;
+  return selectionSize(s) ? s : undefined;
+}
+
+/** 2 つの doc で原子・オブジェクトの位置が違うか */
+export function layoutChanged(a: Doc, b: Doc): boolean {
+  if (a === b) return false;
+  for (const id in a.atoms) {
+    const p = a.atoms[id], q = b.atoms[id];
+    if (!q || Math.abs(p.x - q.x) > 0.01 || Math.abs(p.y - q.y) > 0.01) return true;
+  }
+  for (const id in a.objects) if (JSON.stringify(a.objects[id]) !== JSON.stringify(b.objects[id])) return true;
+  return false;
+}
+
+/** 図が画面からはみ出したら全体表示にする */
+export function fitIfOffscreen(d: Doc = doc()): void {
+  const el = document.getElementById('canvas-host');
+  const b = buildScene(d).bbox;
+  if (!el || !b) return;
+  const v = activeTab().view;
+  const x1 = b.x1 * v.zoom + v.ox, x2 = b.x2 * v.zoom + v.ox, y1 = b.y1 * v.zoom + v.oy, y2 = b.y2 * v.zoom + v.oy;
+  if (x1 < 0 || y1 < 0 || x2 > el.clientWidth || y2 > el.clientHeight) void import('./keys').then((m) => m.fitView());
+}
+
+/** 指定した幅で折り返して並べる。commit は 1 回 */
+export function layoutSchemeWithWidth(width: LayoutWidth): void {
   const d = doc();
-  const next = layoutSchemeDoc(d);
+  const only = selectionScope();
+  const next = layoutScheme(d, { maxWidth: width === 'none' ? undefined : PAGE_WIDTHS[width], only });
   if (!next) {
-    toast('並べるものが 2 つ以上必要です', 'error');
+    toast(only ? '選択範囲に並べるもの (分子・矢印・＋) が 2 つ以上必要です' : '並べるもの (分子・矢印・＋) が 2 つ以上必要です', 'error');
+    return;
+  }
+  const where = only ? '選択範囲を' : '';
+  if (!layoutChanged(d, next)) {
+    toast(`${where}すでに並んでいます${width === 'none' ? '' : ` (${LAYOUT_WIDTH_NAMES[width]})`}`);
     return;
   }
   commit(next);
+  const rows = detectRows(next).length;
+  toast(width === 'none' ? `${where}${rows} 行に並べました` : `${where}${rows} 行に折り返して並べました (${LAYOUT_WIDTH_NAMES[width]})`);
+  fitIfOffscreen(next);
 }
 
 export function layoutSchemeDoc(d: Doc): Doc | null {

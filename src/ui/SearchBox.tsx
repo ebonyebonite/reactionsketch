@@ -1,6 +1,6 @@
 // 上部バーの検索欄: 名前・SMILES・CAS で構造を、「r 反応名」で反応を追加する
 import { useEffect, useRef, useState } from 'react';
-import { useStore } from '../editor/store';
+import { openOverlay, useStore } from '../editor/store';
 import { addReactionFromQuery, addStructureFromQuery } from '../editor/actions';
 import { suggestDictionary } from '../chem/dictionary';
 import { saltFormula, saltNameJa, suggestSalts } from '../chem/salts';
@@ -63,6 +63,15 @@ export function SearchBox() {
           setQ(e.target.value);
           setOpen(true);
           setIdx(-1);
+        }}
+        onPaste={(e) => {
+          // 複数行の貼り付けは「テキストから描く」で開く (1 行の入力欄では改行が消えるため)
+          const t = e.clipboardData.getData('text/plain');
+          if (t.split(/\r?\n/).filter((l) => l.trim()).length < 2 || /M {2}END/.test(t)) return;
+          e.preventDefault();
+          setOpen(false);
+          ref.current?.blur();
+          openOverlay({ kind: 'autodraw', text: t.replace(/\r\n?/g, '\n').trim() });
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}

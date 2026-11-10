@@ -1,8 +1,10 @@
 // 化学式 (NaCl, CaCO3, Na2CO3 …) を構造にする。反応式を文章から読み取るときに使う
 //   1. よく出る無機物・小さな有機物の表 (オフライン)
 //   2. 内蔵辞書 (化学式を名前として登録しているもの)
-//   3. Wikidata の化学式 (P274) から、最もよく知られた物質の SMILES
-//   4. PubChem の名前検索 (NaCl などは名前としても通る)
+//   3. 示性式の解析 (CH3CH2OH, (CH3)2CHOH, PhCHO …, オフライン)
+//   4. Wikidata の化学式 (P274) から、最もよく知られた物質の SMILES
+//   5. PubChem の名前検索 (NaCl などは名前としても通る)
+import { condensedToSmiles } from './condensed';
 import { lookupDictionary } from './dictionary';
 
 const TABLE: Record<string, string> = {
@@ -150,6 +152,8 @@ export async function smilesFromFormula(formula: string, offlineOnly = false): P
   if (hit) return hit;
   const dict = lookupDictionary(f);
   if (dict) return dict.smiles;
+  const cond = condensedToSmiles(f);
+  if (cond) return cond;
   if (offlineOnly) return null;
   return (await wikidataByFormula(f)) ?? (await pubchemByFormulaName(f));
 }

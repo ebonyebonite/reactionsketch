@@ -1,5 +1,5 @@
 // 右側のパネル: 選択したものの性質と操作、分子式・分子量
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Atom, Bond, Bracket, CurvedArrow, Doc, Id, ReactionArrow, ReactionArrowKind, TextBox } from '../model/types';
 import { selectedAtomIds, selectionSize, updateAtom, updateBond, withObject } from '../model/edit';
 import { components } from '../model/graph';
@@ -20,7 +20,7 @@ import { hideHydrogens, showHydrogens } from '../editor/hydrogens';
 import { smilesOf } from '../chem/rdkit';
 import { inchiOf } from '../io/formats';
 import { nameFromSmiles } from '../chem/names';
-import { copyText, exportPrefs, saveExportPrefs } from '../io/export';
+import { copyText, getExportPrefs, saveExportPrefs, subscribeExportPrefs } from '../io/export';
 import { Icons } from './icons';
 
 function FormulaView({ counts }: { counts: Record<string, number> }) {
@@ -446,8 +446,8 @@ function ColorSection({ doc }: { doc: Doc }) {
 function DocPanel() {
   const tab = useStore((s) => activeTab(s));
   const doc = tab.doc;
-  const [dpi, setDpi] = useState(exportPrefs.dpi);
-  const [transparent, setTransparent] = useState(exportPrefs.transparent);
+  // 設定画面と同じ値を見る (どちらで変えても追従する)
+  const { dpi, transparent } = useSyncExternalStore(subscribeExportPrefs, getExportPrefs, getExportPrefs);
   const mols = components(doc).filter((c) => c.length > 0 && !(c.length === 1 && !doc.atoms[c[0]].label && doc.atoms[c[0]].element === 'C' && !doc.atoms[c[0]].showLabel && false));
   return (
     <>
@@ -488,9 +488,9 @@ function DocPanel() {
         <h3>画像の書き出し</h3>
         <div className="row">
           <span className="k">解像度</span>
-          {[150, 300, 600].map((v) => <button key={v} className={`mini ${dpi === v ? 'on' : ''}`} onClick={() => { setDpi(v); saveExportPrefs({ dpi: v }); }}>{v} dpi</button>)}
+          {[150, 300, 600].map((v) => <button key={v} className={`mini ${dpi === v ? 'on' : ''}`} onClick={() => saveExportPrefs({ dpi: v })}>{v} dpi</button>)}
         </div>
-        <label className="row check"><input type="checkbox" checked={transparent} onChange={(e) => { setTransparent(e.target.checked); saveExportPrefs({ transparent: e.target.checked }); }} />背景を透明にする</label>
+        <label className="row check"><input type="checkbox" checked={transparent} onChange={(e) => saveExportPrefs({ transparent: e.target.checked })} />背景を透明にする</label>
         <p className="tip">PNG は ACS の原寸 (結合長 0.508 cm) で Word に貼り付けられます。</p>
       </section>
       {mols.length > 0 && (

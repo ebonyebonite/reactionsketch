@@ -22,13 +22,29 @@ function loadPrefs(): PngOptions {
   return { dpi: 300, transparent: false };
 }
 
+let exportPrefsSnap: PngOptions = { ...exportPrefs };
+const exportPrefsListeners = new Set<() => void>();
+
 export function saveExportPrefs(p: Partial<PngOptions>): void {
   Object.assign(exportPrefs, p);
+  exportPrefsSnap = { ...exportPrefs };
   try {
     localStorage.setItem('reactionsketch.exportPrefs', JSON.stringify(exportPrefs));
   } catch {
     /* noop */
   }
+  exportPrefsListeners.forEach((l) => l());
+}
+
+/** 書き出しの設定の変化を購読する (設定画面とパネルの表示を合わせる) */
+export function subscribeExportPrefs(l: () => void): () => void {
+  exportPrefsListeners.add(l);
+  return () => exportPrefsListeners.delete(l);
+}
+
+/** 書き出しの設定のスナップショット (変わるたびに別のオブジェクト) */
+export function getExportPrefs(): PngOptions {
+  return exportPrefsSnap;
 }
 
 /** 選択範囲があればその部分、なければ全体 */

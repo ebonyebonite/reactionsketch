@@ -54,6 +54,36 @@ export interface EditingText {
   value: string;
 }
 
+/** 画面全体に重ねて出すもの (同時に 1 つだけ) */
+export type Overlay =
+  | { kind: 'palette'; query?: string }
+  | { kind: 'settings' }
+  | { kind: 'share' }
+  | { kind: 'export' }
+  | { kind: 'history' }
+  | { kind: 'reactions' }
+  | { kind: 'tour' }
+  | { kind: 'autodraw'; text?: string };
+
+/** 閉じたタブ (「元に戻す」・Ctrl+Shift+T で開き直す) */
+export interface ClosedTab {
+  tab: { id: Id; name: string; doc: Doc; view: View };
+  /** 閉じたときの位置 */
+  index: number;
+  closedAt: number;
+}
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
+export interface SaveStatus {
+  state: 'idle' | 'saving' | 'saved' | 'error';
+  at?: number;
+  message?: string;
+}
+
 export interface AppState {
   tabs: TabState[];
   activeId: Id;
@@ -61,8 +91,8 @@ export interface AppState {
   selection: Selection;
   hover: Hover | null;
   editing: EditingText | null;
-  toast: { text: string; kind: 'info' | 'error' } | null;
-  /** 直近に使った環 / 結合 (ツールボタンの表示用) */
+  toast: { text: string; kind: 'info' | 'error'; action?: ToastAction } | null;
+  /** 右のプロパティパネルを開いているか */
   panelOpen: boolean;
   busy: string | null;
   helpOpen: boolean;
@@ -95,6 +125,12 @@ export interface AppState {
   libraryOpen: boolean;
   /** 立体異性体・共鳴構造・互変異性体を考える分子 */
   isomersFor: { atoms: Id[]; kind: 'stereo' | 'resonance' | 'tautomer' } | null;
+  /** コマンド検索・設定・共有などの重ねる画面 (同時に 1 つだけ) */
+  overlay: Overlay | null;
+  /** 閉じたタブ (新しい順、最大 10) */
+  closedTabs: ClosedTab[];
+  /** 自動保存の状態 */
+  saveStatus: SaveStatus;
 }
 
 const PREF_SCHEMES = 'reactionsketch.showSchemes';
@@ -179,6 +215,9 @@ function loadInitial(): AppState {
     findOpen: false,
     libraryOpen: false,
     isomersFor: null,
+    overlay: null,
+    closedTabs: [],
+    saveStatus: { state: 'idle' },
     ...loadSaltPref(),
   };
 }
@@ -296,12 +335,26 @@ export function setTool(tool: Tool): void {
   setState({ tool, editing: null });
 }
 
-export function toast(text: string, kind: 'info' | 'error' = 'info'): void {
-  setState({ toast: { text, kind } });
+/** 画面下に短い知らせを出す。action を渡すとボタン (「元に戻す」など) を付け、7 秒出す */
+export function toast(text: string, kind: 'info' | 'error' = 'info', opts?: { action?: ToastAction; duration?: number }): void {
+  const action = opts?.action;
+  setState({ toast: action ? { text, kind, action } : { text, kind } });
   const cur = state.toast;
+  const ms = opts?.duration ?? (action ? 7000 : kind === 'error' ? 5000 : 2600);
   setTimeout(() => {
     if (state.toast === cur) setState({ toast: null });
-  }, kind === 'error' ? 5000 : 2600);
+  }, ms);
+}
+
+// ---- 重ねる画面 ----
+
+/** 右クリックメニュー・文字の入力を閉じてから開く */
+export function openOverlay(o: Overlay): void {
+  setState({ overlay: o, contextMenu: null, editing: null });
+}
+
+export function closeOverlay(): void {
+  if (state.overlay) setState({ overlay: null });
 }
 
 // ---- タブ ----
@@ -312,17 +365,50 @@ export function addTab(doc?: Doc, name?: string): void {
   setState((s) => ({ tabs: [...s.tabs, t], activeId: t.id, selection: emptySelection(), hover: null, editing: null }));
 }
 
+const CLOSED_TABS_MAX = 10;
+/** 最後のタブを閉じたときに代わりに作った空のタブ (開き直すときに置き換える) */
+let placeholderTabId: Id | null = null;
+
+const hasContent = (d: Doc): boolean => Object.keys(d.atoms).length > 0 || d.order.length > 0 || Object.keys(d.objects).length > 0;
+
 export function closeTab(id: Id): void {
   setState((s) => {
+    const idx = s.tabs.findIndex((t) => t.id === id);
+    const closing = s.tabs[idx];
+    if (!closing) return {};
+    // 中身のあるタブは、あとで開き直せるように取っておく
+    const closedTabs = hasContent(closing.doc)
+      ? [{ tab: { id: closing.id, name: closing.name, doc: closing.doc, view: closing.view }, index: idx, closedAt: Date.now() }, ...s.closedTabs].slice(0, CLOSED_TABS_MAX)
+      : s.closedTabs;
     if (s.tabs.length === 1) {
       const t = newTab('反応 1');
-      return { tabs: [t], activeId: t.id, selection: emptySelection() };
+      placeholderTabId = t.id;
+      return { tabs: [t], activeId: t.id, selection: emptySelection(), hover: null, editing: null, closedTabs };
     }
-    const idx = s.tabs.findIndex((t) => t.id === id);
     const tabs = s.tabs.filter((t) => t.id !== id);
     const activeId = s.activeId === id ? tabs[Math.max(0, idx - 1)].id : s.activeId;
-    return { tabs, activeId, selection: emptySelection(), hover: null };
+    return { tabs, activeId, selection: emptySelection(), hover: null, editing: null, closedTabs };
   });
+}
+
+/** 直近に閉じたタブを元の位置に戻して選ぶ。なければ false */
+export function reopenClosedTab(): boolean {
+  const [c, ...rest] = state.closedTabs;
+  if (!c) return false;
+  setState((s) => {
+    const restored: TabState = { ...c.tab, past: [], future: [] };
+    // 同じ id のタブが既にあれば (念のため) 新しい id にする
+    if (s.tabs.some((t) => t.id === restored.id)) restored.id = newId('t');
+    let tabs = s.tabs;
+    // 最後のタブを閉じたときに作った空のタブは置き換える
+    if (tabs.length === 1 && tabs[0].id === placeholderTabId && !hasContent(tabs[0].doc) && !tabs[0].past.length) tabs = [];
+    tabs = [...tabs];
+    tabs.splice(Math.max(0, Math.min(tabs.length, c.index)), 0, restored);
+    // 「閉じました (元に戻す)」の知らせは役目を終えたので消す
+    const toastNext = s.toast?.action ? null : s.toast;
+    return { tabs, activeId: restored.id, closedTabs: rest, selection: emptySelection(), hover: null, editing: null, toast: toastNext };
+  });
+  return true;
 }
 
 export function renameTab(id: Id, name: string): void {

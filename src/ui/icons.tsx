@@ -89,5 +89,13 @@ export const Icons = {
   energy: S([<path key="a" d="M3 3v18h18" />, <path key="b" d="M5 15h3c2 0 3-9 5-9s2 6 4 6c1 0 1.5 3 3 3" />]),
   image: S([<rect key="a" x="3" y="5" width="18" height="14" rx="2" />, <circle key="b" cx="9" cy="10" r="1.8" />, <path key="c" d="M3 17l5-4 4 3 3-2 6 4" />]),
   periodic: S([<rect key="a" x="3" y="5" width="4" height="4" />, <rect key="b" x="17" y="5" width="4" height="4" />, <path key="c" d="M3 9v10h18V9M7 13h14M3 13h4M11 9v10M15 9v10" />]),
+  settings: S([<circle key="a" cx="12" cy="12" r="3" />, <path key="b" d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" />, <circle key="c" cx="12" cy="12" r="6.6" />]),
+  share: S([<circle key="a" cx="18" cy="5.5" r="2.5" />, <circle key="b" cx="6" cy="12" r="2.5" />, <circle key="c" cx="18" cy="18.5" r="2.5" />, <path key="d" d="M8.2 10.8l7.6-4.1M8.2 13.2l7.6 4.1" />]),
+  command: S([<rect key="a" x="3" y="5" width="18" height="14" rx="2.5" />, <path key="b" d="M7 10l3 2-3 2M12 15h5" />]),
+  wand: S([<path key="a" d="M4 20L15 9" />, <path key="b" d="M13.5 7.5l3 3" />, <path key="c" d="M18 2.5v3M16.5 4h3M20.5 9.5v2M19.5 10.5h2M10 3v2M9 4h2" />]),
+  insert: S([<rect key="a" x="4" y="4" width="16" height="16" rx="2.5" />, <path key="b" d="M12 8.5v7M8.5 12h7" />]),
+  close: S(<path d="M6 6l12 12M18 6L6 18" />),
+  zoomIn: S([<circle key="a" cx="10.5" cy="10.5" r="6" />, <path key="b" d="M15 15l5 5M8 10.5h5M10.5 8v5" />]),
+  zoomOut: S([<circle key="a" cx="10.5" cy="10.5" r="6" />, <path key="b" d="M15 15l5 5M8 10.5h5" />]),
   cube: S([<path key="a" d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />, <path key="b" d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />]),
 };

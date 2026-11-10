@@ -4,13 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="有機化学のレポート向け 構造式・反応機構エディタ" />
-    <meta name="theme-color" content="#1f2937" />
+    <meta name="theme-color" content="#ffffff" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <title>ReactionSketch</title>
+    <style>
+      /* 読み込み中の表示 (スタイルシートの読み込み前) */
+      html, body, #root { margin: 0; height: 100%; }
+      .boot-loading { display: grid; place-items: center; height: 100%; color: #667085; font: 14px system-ui, sans-serif; }
+      @media (prefers-color-scheme: dark) { html { background: #15171b; } .boot-loading { color: #9aa2ad; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot-loading" role="status">読み込み中…</div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

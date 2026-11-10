@@ -22,6 +22,7 @@ import { parseSalt, withCounterIon, type CounterIon } from '../model/salt';
 import { buildSaltDoc, parseSaltQuery, saltFormula, saltNameJa, type Salt } from '../chem/salts';
 import { counterIon, neutralize, splitIonic, toSalt } from '../model/saltOps';
 import { asRepeatUnit, layoutRepeatUnit, monomerToRepeatUnit, polymerizableBond, repeatUnitBracket } from '../model/polymer';
+import { sanitizeDoc } from '../io/sanitize';
 
 export const doc = (): Doc => activeTab().doc;
 
@@ -228,7 +229,7 @@ function getInternalClipboard(): Doc | null {
   if (internalClipboard) return internalClipboard;
   try {
     const raw = localStorage.getItem('reactionsketch.clipboard');
-    return raw ? (JSON.parse(raw) as Doc) : null;
+    return raw ? sanitizeDoc(JSON.parse(raw)) : null;
   } catch {
     return null;
   }
@@ -285,7 +286,7 @@ export async function pasteFromClipboard(at?: { x: number; y: number }): Promise
   if (text) {
     if (text.startsWith('{') && text.includes('"atoms"')) {
       try {
-        placeFragment(JSON.parse(text) as Doc, at);
+        placeFragment(sanitizeDoc(JSON.parse(text)), at);
         return;
       } catch {
         /* 続けて他の形式を試す */

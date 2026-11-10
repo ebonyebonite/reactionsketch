@@ -1,20 +1,37 @@
 // ファイルを開く (.rsketch / .cdxml / .mol / .sdf / .rxn / .smi)
-import type { Project } from '../model/types';
 import { addTab, loadProject, toast } from '../editor/store';
 import { addReactionFromQuery, placeFragment } from '../editor/actions';
 import { buildReactionDoc } from '../reactionScheme';
 import { parseRxn } from './formats';
 import { structureFromText } from '../chem/rdkit';
 import { fromCdxml } from './cdxml';
+import { snapshotNow } from '../editor/persist';
+
+/** これより大きいファイルは読まない */
+const MAX_FILE_BYTES = 60 * 1024 * 1024;
+const UNREADABLE = 'ファイルを読み取れませんでした (壊れているか、ReactionSketch のファイルではありません)';
 
 export async function openFiles(files: File[]): Promise<void> {
   for (const file of files) {
     const name = file.name;
     const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+    if (file.size > MAX_FILE_BYTES) throw new Error(`${name}: ファイルが大きすぎるため開けません (${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB まで)`);
     const text = await file.text();
     const base = name.replace(/\.[^.]+$/, '');
     if (ext === 'rsketch' || ext === 'json') {
-      loadProject(JSON.parse(text) as Project, 'append');
+      let raw: unknown;
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        throw new Error(`${name}: ${UNREADABLE}`);
+      }
+      // 開く前の状態を版として残す (中身が同じなら何もしない)
+      await snapshotNow('before-open');
+      try {
+        loadProject(raw, 'append');
+      } catch (e) {
+        throw new Error(`${name}: ${(e as Error).message || UNREADABLE}`);
+      }
       toast(`${name} を開きました (タブとして追加)`);
     } else if (ext === 'cdxml') {
       addTab(fromCdxml(text), base);

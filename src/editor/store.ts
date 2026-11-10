@@ -2,6 +2,7 @@
 import { useSyncExternalStore } from 'react';
 import { emptyDoc, newId, type Doc, type Id, type Project, type ReactionArrowKind, type ShapeKind, type BondStereo } from '../model/types';
 import { emptySelection, type Selection } from '../model/edit';
+import { sanitizeProject } from '../io/sanitize';
 import type { Condition } from '../chem/conditions';
 
 export type Tool =
@@ -169,7 +170,6 @@ export function saveShowSchemes(on: boolean): void {
   }
 }
 
-const STORAGE_KEY = 'reactionsketch.project.v1';
 const HISTORY_LIMIT = 200;
 
 function defaultView(): View {
@@ -180,26 +180,11 @@ export function newTab(name: string, doc: Doc = emptyDoc()): TabState {
   return { id: newId('t'), name, doc, past: [], future: [], view: defaultView() };
 }
 
+/** 読み込み前の一瞬の初期状態 (空のタブ 1 つ)。保存した作業は persist.ts の hydrateStore が読み込んで置き換える */
 function loadInitial(): AppState {
-  let tabs: TabState[] | null = null;
-  let activeId = '';
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const p = JSON.parse(raw) as Project & { views?: Record<Id, View> };
-      if (p.format === 'reactionsketch' && Array.isArray(p.tabs) && p.tabs.length) {
-        tabs = p.tabs.map((t) => ({ id: t.id, name: t.name, doc: normalizeDoc(t.doc), past: [], future: [], view: p.views?.[t.id] ?? defaultView() }));
-        activeId = tabs.some((t) => t.id === p.activeTab) ? p.activeTab : tabs[0].id;
-      }
-    }
-  } catch {
-    tabs = null;
-  }
-  if (!tabs) {
-    const t = newTab('反応 1');
-    tabs = [t];
-    activeId = t.id;
-  }
+  const t = newTab('反応 1');
+  const tabs = [t];
+  const activeId = t.id;
   return {
     tabs, activeId, tool: { kind: 'bond', order: 1, stereo: 'none' }, selection: emptySelection(), hover: null, editing: null, toast: null,
     panelOpen: typeof window !== 'undefined' ? window.innerWidth > 900 : true, busy: null, helpOpen: false, reagentsOpen: false, contextMenu: null,
@@ -254,9 +239,17 @@ export function getState(): AppState {
 
 export function setState(patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)): void {
   const p = typeof patch === 'function' ? patch(state) : patch;
+  const prevTabs = state.tabs;
   state = { ...state, ...p };
   listeners.forEach((l) => l());
-  scheduleSave();
+  // 保存のきっかけはタブの変化だけ (saveStatus などの更新で保存を繰り返さない)
+  if (state.tabs !== prevTabs) tabsListener?.();
+}
+
+let tabsListener: (() => void) | null = null;
+/** タブ (図) が変わるたびに呼ぶ関数を登録する (自動保存用。persist.ts が使う) */
+export function onTabsChange(fn: (() => void) | null): void {
+  tabsListener = fn;
 }
 
 export function subscribe(l: () => void): () => void {
@@ -454,43 +447,30 @@ export function toProject(s: AppState = state): Project & { views: Record<Id, Vi
   };
 }
 
-export function loadProject(p: Project, mode: 'replace' | 'append'): void {
-  if (p.format !== 'reactionsketch' || !Array.isArray(p.tabs)) throw new Error('ReactionSketch のファイルではありません');
-  const incoming = p.tabs.map((t) => ({ ...newTab(t.name, normalizeDoc(t.doc)) }));
+/** 外から来たプロジェクト (ファイル・版の履歴など) を読み込む。必ず sanitizeProject を通し、タブには新しい id を振る */
+export function loadProject(p: unknown, mode: 'replace' | 'append'): void {
+  const { project, views } = sanitizeProject(p);
+  const incoming = project.tabs.map((t) => ({ ...newTab(t.name, t.doc), ...(views[t.id] ? { view: { ...views[t.id] } } : {}) }));
   if (!incoming.length) return;
   setState((s) => ({
     tabs: mode === 'replace' ? incoming : [...s.tabs, ...incoming],
     activeId: incoming[0].id,
     selection: emptySelection(),
     hover: null,
+    editing: null,
   }));
 }
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let lastSavedTabs: TabState[] | null = null;
-
-function scheduleSave(): void {
-  if (state.tabs === lastSavedTabs) return;
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    lastSavedTabs = state.tabs;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toProject()));
-    } catch {
-      // 保存できない環境 (プライベートモードなど) では何もしない
-    }
-  }, 400);
+/** 保存してあった作業で、タブ・選択中のタブ・表示位置をそのまま置き換える (id も保つ)。p は sanitize 済みのもの */
+export function replaceProject(p: Project, views: Record<Id, View>): void {
+  const tabs = p.tabs.map((t) => ({ id: t.id, name: t.name, doc: t.doc, past: [], future: [], view: views[t.id] ? { ...views[t.id] } : defaultView() }));
+  if (!tabs.length) return;
+  const activeId = tabs.some((t) => t.id === p.activeTab) ? p.activeTab : tabs[0].id;
+  setState({ tabs, activeId, selection: emptySelection(), hover: null, editing: null });
 }
 
-export function flushSave(): void {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toProject()));
-    } catch {
-      /* noop */
-    }
-  }
+/** タブを丸ごと差し替える (版を戻したあとの「元に戻す」用。編集の履歴も戻る) */
+export function restoreTabs(tabs: TabState[], activeId: Id): void {
+  if (!tabs.length) return;
+  setState({ tabs, activeId: tabs.some((t) => t.id === activeId) ? activeId : tabs[0].id, selection: emptySelection(), hover: null, editing: null });
 }

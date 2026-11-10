@@ -11,12 +11,12 @@ import { atomInk } from '../model/colors';
 import { isBoxObject } from '../model/types';
 import { energySvg, imageSvg, shapeSvg, tlcSvg, type TextFn } from './shapes';
 import { hybridization, oxidationNumber, romanOx } from '../model/atomInfo';
+import { attr, esc, safeColor } from './escape';
 
 const f = (v: number) => (Math.round(v * 100) / 100).toString();
 
-export function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+// Doc 由来の文字列は、要素の中身は esc()、属性値は attr()、色は safeColor() を必ず通す (読み込み時の検証とは別の多層防御)
+export { esc };
 
 /** 強調 (蛍光ペン) の太さ */
 const HL_WIDTH = 7;
@@ -24,7 +24,7 @@ const HL_WIDTH = 7;
 const FONT = `font-family="${ACS.fontFamily}, 'Yu Gothic', 'Hiragino Sans', sans-serif"`;
 
 const plainText: TextFn = (x, y, text, size, color, anchor = 'start') =>
-  `<text x="${f(x)}" y="${f(y)}" font-size="${f(size)}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''} ${FONT} fill="${color}">${esc(text)}</text>`;
+  `<text x="${f(x)}" y="${f(y)}" font-size="${f(size)}"${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''} ${FONT} fill="${safeColor(color, '#000')}">${esc(text)}</text>`;
 
 /** 図形・画像・TLC・エネルギー図 (分子より後ろに描く) */
 function boxObjectSvg(o: Doc['objects'][string]): string {
@@ -38,6 +38,7 @@ function boxObjectSvg(o: Doc['objects'][string]): string {
 }
 
 function textGeomSvg(g: TextGeom, color = '#000'): string {
+  const ink = safeColor(color, '#000');
   let out = '';
   for (const line of g.lines) {
     let x = line.x;
@@ -45,7 +46,7 @@ function textGeomSvg(g: TextGeom, color = '#000'): string {
       const size = spanSize(sp, line.size);
       const y = sp.sub ? line.y + line.size * 0.22 : sp.sup ? line.y - line.size * 0.38 : line.y;
       if (sp.text.trim()) {
-        out += `<text x="${f(x)}" y="${f(y)}" font-size="${f(size)}" ${FONT}${sp.italic ? ' font-style="italic"' : ''}${sp.bold ? ' font-weight="bold"' : ''} fill="${color}" xml:space="preserve">${esc(sp.text)}</text>`;
+        out += `<text x="${f(x)}" y="${f(y)}" font-size="${f(size)}" ${FONT}${sp.italic ? ' font-style="italic"' : ''}${sp.bold ? ' font-weight="bold"' : ''} fill="${ink}" xml:space="preserve">${esc(sp.text)}</text>`;
       }
       x += spanWidth(sp, line.size);
     }
@@ -73,30 +74,30 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
   for (const b of Object.values(doc.bonds)) {
     if (!b.highlight) continue;
     const A = doc.atoms[b.a1], B = doc.atoms[b.a2];
-    if (A && B) parts.push(`<line x1="${f(A.x)}" y1="${f(A.y)}" x2="${f(B.x)}" y2="${f(B.y)}" stroke="${b.highlight}" stroke-width="${f(HL_WIDTH)}" stroke-linecap="round"/>`);
+    if (A && B) parts.push(`<line x1="${f(A.x)}" y1="${f(A.y)}" x2="${f(B.x)}" y2="${f(B.y)}" stroke="${safeColor(b.highlight, '#ffe27a')}" stroke-width="${f(HL_WIDTH)}" stroke-linecap="round"/>`);
   }
   for (const a of Object.values(doc.atoms)) {
     if (!a.highlight) continue;
     const r = scene.layouts[a.id]?.visible ? HL_WIDTH * 0.75 : HL_WIDTH * 0.62;
-    parts.push(`<circle cx="${f(a.x)}" cy="${f(a.y)}" r="${f(r)}" fill="${a.highlight}"/>`);
+    parts.push(`<circle cx="${f(a.x)}" cy="${f(a.y)}" r="${f(r)}" fill="${safeColor(a.highlight, '#ffe27a')}"/>`);
   }
 
   // Newman 投影式の奥の炭素 (円)
   for (const a of Object.values(doc.atoms)) {
-    if (a.newman === 'back') parts.push(`<circle cx="${f(a.x)}" cy="${f(a.y)}" r="${f(NEWMAN_R)}" fill="none" stroke="${a.color ?? '#000'}" stroke-width="${lw}"/>`);
+    if (a.newman === 'back') parts.push(`<circle cx="${f(a.x)}" cy="${f(a.y)}" r="${f(NEWMAN_R)}" fill="none" stroke="${safeColor(a.color, '#000')}" stroke-width="${lw}"/>`);
   }
 
   // 結合 (色ごとにまとめる)
   const byColor = new Map<string, string[]>();
   for (const [bid, shapes] of Object.entries(scene.bonds)) {
-    const ink = doc.bonds[bid]?.color ?? '#000';
+    const ink = safeColor(doc.bonds[bid]?.color, '#000');
     const out = byColor.get(ink) ?? [];
     byColor.set(ink, out);
     for (const s of shapes) {
       if (s.kind === 'line') {
         out.push(`<line x1="${f(s.x1)}" y1="${f(s.y1)}" x2="${f(s.x2)}" y2="${f(s.y2)}"${s.w !== ACS.lineWidth ? ` stroke-width="${f(s.w)}" stroke-linecap="butt"` : ''}/>`);
       } else if (s.kind === 'path') {
-        out.push(`<path d="${s.d}"/>`);
+        out.push(`<path d="${attr(s.d)}"/>`);
       } else {
         out.push(`<polygon points="${s.points.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}" stroke="${ink}" stroke-width="0.2" stroke-linejoin="round"/>`);
       }
@@ -109,7 +110,7 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
   // 原子ラベル
   for (const [id, l] of Object.entries(scene.layouts)) {
     const atom = doc.atoms[id];
-    const ink = atomInk(doc, atom);
+    const ink = safeColor(atomInk(doc, atom), '#000');
     for (const gl of l.glyphs) {
       parts.push(`<text x="${f(gl.x)}" y="${f(gl.y)}" font-size="${f(gl.size)}" ${FONT} fill="${ink}">${esc(gl.text)}</text>`);
     }
@@ -129,7 +130,7 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
       parts.push(`<circle cx="${f(d.x)}" cy="${f(d.y)}" r="0.75" fill="${ink}"/>`);
     }
     if (atom.mapNo) {
-      parts.push(`<text x="${f(atom.x + 4)}" y="${f(atom.y + 9)}" font-size="6" ${FONT} fill="#000">${atom.mapNo}</text>`);
+      parts.push(`<text x="${f(atom.x + 4)}" y="${f(atom.y + 9)}" font-size="6" ${FONT} fill="#000">${esc(atom.mapNo)}</text>`);
     }
   }
 
@@ -185,11 +186,11 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
   for (const oid of doc.order) {
     const o = doc.objects[oid];
     if (!o) continue;
-    const ink = ('color' in o && o.color) || '#000';
+    const ink = safeColor('color' in o ? o.color : undefined, '#000');
     if (o.type === 'curved') {
       const g = scene.curved[oid];
       if (!g) continue;
-      parts.push(`<path d="${g.path}" fill="none" stroke="${ink}" stroke-width="${lw}" stroke-linecap="butt"/>`);
+      parts.push(`<path d="${attr(g.path)}" fill="none" stroke="${ink}" stroke-width="${lw}" stroke-linecap="butt"/>`);
       const head = arrowHead(g.tip, g.dir, o.head === 'full' ? 'full' : 'half', g.outer);
       parts.push(`<polygon points="${head.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}"/>`);
     } else if (o.type === 'reaction') {
@@ -197,7 +198,7 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
       const dash = r.geom.dashed ? ' stroke-dasharray="3 2"' : '';
       for (const ln of r.geom.lines) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="${ink}" stroke-width="${lw}"${dash}/>`);
       for (const h of r.geom.heads) parts.push(`<polygon points="${h.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}"/>`);
-      for (const d of r.geom.openHeads) parts.push(`<path d="${d}" fill="none" stroke="${ink}" stroke-width="${lw}" stroke-linejoin="miter"/>`);
+      for (const d of r.geom.openHeads) parts.push(`<path d="${attr(d)}" fill="none" stroke="${ink}" stroke-width="${lw}" stroke-linejoin="miter"/>`);
       for (const ln of r.geom.cross) parts.push(`<line x1="${f(ln.x1)}" y1="${f(ln.y1)}" x2="${f(ln.x2)}" y2="${f(ln.y2)}" stroke="${ink}" stroke-width="${f(ACS.lineWidth * 1.3)}"/>`);
       parts.push(textGeomSvg(r.above, ink));
       parts.push(textGeomSvg(r.below, ink));
@@ -206,11 +207,11 @@ export function docBodySvg(doc: Doc, _opts: SvgOptions = {}): string {
       if (g) parts.push(textGeomSvg(g, ink));
     } else if (o.type === 'bracket') {
       const bp = bracketPath(o);
-      for (const d of bp.paths) parts.push(`<path d="${d}" fill="none" stroke="${ink}" stroke-width="${lw}"/>`);
+      for (const d of bp.paths) parts.push(`<path d="${attr(d)}" fill="none" stroke="${ink}" stroke-width="${lw}"/>`);
       if (bp.label) {
         // 高分子の n などは右下に斜体の添字、遷移状態の ‡ は右上
         const bottom = o.labelPos === 'bottom';
-        const italic = bottom && /^[a-z]$/.test(o.label) ? ' font-style="italic"' : '';
+        const italic = bottom && /^[a-z]$/.test(String(o.label)) ? ' font-style="italic"' : '';
         parts.push(`<text x="${f(bp.label.x)}" y="${f(bp.label.y)}" font-size="${bottom ? 8.5 : 10}" ${FONT}${italic} fill="${ink}">${esc(o.label)}</text>`);
       }
     } else if (o.type === 'plus') {
@@ -231,7 +232,7 @@ export function standaloneSvg(doc: Doc, opts: { margin?: number; background?: st
   const w = b.x2 - b.x1 + 2 * m, h = b.y2 - b.y1 + 2 * m;
   const scale = opts.scale ?? 1;
   const unit = opts.unit ?? 'pt';
-  const bg = opts.background ? `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" fill="${opts.background}"/>` : '';
+  const bg = opts.background ? `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" fill="${safeColor(opts.background, '#ffffff')}"/>` : '';
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${f(w * scale)}${unit === 'pt' ? 'pt' : ''}" height="${f(h * scale)}${unit === 'pt' ? 'pt' : ''}" viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}">` +
     bg + docBodySvg(doc) + '</svg>';

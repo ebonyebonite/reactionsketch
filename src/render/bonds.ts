@@ -27,6 +27,9 @@ const norm = (a: Pt): Pt => {
 };
 const cross = (a: Pt, b: Pt) => a.x * b.y - a.y * b.x;
 
+/** 破線・波線・破線くさびの刻みの数の上限 (極端に長い結合で固まらないように。ふつうの結合は 10 未満) */
+const MAX_SEGMENTS = 2000;
+
 /** 左右どちらに二重結合の 2 本目を描くか (+1: 法線方向, -1: 逆, 0: 中央) */
 export function doubleBondSide(doc: Doc, bond: Bond, layouts: Record<Id, AtomLayout>): number {
   const A = doc.atoms[bond.a1];
@@ -143,7 +146,7 @@ export function bondShapes(doc: Doc, bond: Bond, layouts: Record<Id, AtomLayout>
       case 'hash': {
         const out: BondShape[] = [];
         const segLen = len(sub(Q, P));
-        const count = Math.max(2, Math.floor(segLen / ACS.hashSpacing));
+        const count = Math.min(MAX_SEGMENTS, Math.max(2, Math.floor(segLen / ACS.hashSpacing)));
         for (let i = 0; i <= count; i++) {
           const t = i / count;
           const c = add(P, mul(sub(Q, P), t));
@@ -154,7 +157,7 @@ export function bondShapes(doc: Doc, bond: Bond, layouts: Record<Id, AtomLayout>
       }
       case 'wavy': {
         const segLen = len(sub(Q, P));
-        const waves = Math.max(2, Math.round(segLen / 3));
+        const waves = Math.min(MAX_SEGMENTS, Math.max(2, Math.round(segLen / 3)));
         const step = segLen / waves;
         let dstr = `M${P.x.toFixed(2)} ${P.y.toFixed(2)}`;
         for (let i = 0; i < waves; i++) {
@@ -212,7 +215,7 @@ export function bondShapes(doc: Doc, bond: Bond, layouts: Record<Id, AtomLayout>
 function dashedPath(P: Pt, Q: Pt, dash: number, gap: number): BondShape {
   const L = len(sub(Q, P));
   const u = norm(sub(Q, P));
-  const n = Math.max(1, Math.round((L + gap) / (dash + gap)));
+  const n = Math.min(MAX_SEGMENTS, Math.max(1, Math.round((L + gap) / (dash + gap))));
   // 両端が線で終わるように間隔を調整
   const g = n > 1 ? (L - n * dash) / (n - 1) : 0;
   let d = '';

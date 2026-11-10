@@ -2,6 +2,7 @@
 import { normBox, type EnergyDiagram, type ImageObject, type Shape, type ShapeKind, type TlcPlate } from '../model/types';
 import { ACS } from '../model/style';
 import { arrowHead } from './arrows';
+import { attr, isSafeImageHref, safeColor } from './escape';
 
 const f = (v: number) => (Math.round(v * 100) / 100).toString();
 
@@ -157,13 +158,13 @@ function orbitalSvg(o: Shape, ink: string, lw: string): string {
   const w = b.x2 - b.x1, h = b.y2 - b.y1;
   const cx = (b.x1 + b.x2) / 2, cy = (b.y1 + b.y2) / 2;
   const rot = ((o.angle ?? 0) * Math.PI) / 180;
-  const shade = o.fill ?? SHADE;
+  const shade = safeColor(o.fill, SHADE);
   const up = -Math.PI / 2 + rot;
   const path = (d: string, fill: string) => `<path d="${d}" fill="${fill}" stroke="${ink}" stroke-width="${lw}" stroke-linejoin="round"/>`;
   const R = Math.min(w, h) / 2;
   switch (o.kind) {
     case 'orbitalS':
-      return path(ellipsePath(cx, cy, w / 2, h / 2, rot), o.fill ?? '#fff');
+      return path(ellipsePath(cx, cy, w / 2, h / 2, rot), safeColor(o.fill, '#fff'));
     case 'orbitalP':
       return path(lobe(cx, cy, up, h / 2, w), '#fff') + path(lobe(cx, cy, up + Math.PI, h / 2, w), shade);
     case 'orbitalHybrid': {
@@ -188,7 +189,8 @@ function orbitalSvg(o: Shape, ink: string, lw: string): string {
 }
 
 export function shapeSvg(o: Shape): string {
-  const ink = o.color ?? '#000';
+  const ink = safeColor(o.color, '#000');
+  const fillOr = (fallback: string) => safeColor(o.fill, fallback);
   const lw = f(ACS.lineWidth * (o.weight ?? 1));
   const dash = o.dashed ? ` stroke-dasharray="${f(3 * (o.weight ?? 1))} ${f(2 * (o.weight ?? 1))}"` : '';
   const b = normBox(o);
@@ -196,10 +198,10 @@ export function shapeSvg(o: Shape): string {
     case 'rect':
     case 'roundrect': {
       const r = o.kind === 'roundrect' ? Math.min(6, (b.x2 - b.x1) / 4, (b.y2 - b.y1) / 4) : 0;
-      return `<rect x="${f(b.x1)}" y="${f(b.y1)}" width="${f(b.x2 - b.x1)}" height="${f(b.y2 - b.y1)}"${r ? ` rx="${f(r)}"` : ''} fill="${o.fill ?? 'none'}" stroke="${ink}" stroke-width="${lw}"${dash}/>`;
+      return `<rect x="${f(b.x1)}" y="${f(b.y1)}" width="${f(b.x2 - b.x1)}" height="${f(b.y2 - b.y1)}"${r ? ` rx="${f(r)}"` : ''} fill="${fillOr('none')}" stroke="${ink}" stroke-width="${lw}"${dash}/>`;
     }
     case 'ellipse':
-      return `<path d="${ellipsePath((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, (b.x2 - b.x1) / 2, (b.y2 - b.y1) / 2, ((o.angle ?? 0) * Math.PI) / 180)}" fill="${o.fill ?? 'none'}" stroke="${ink}" stroke-width="${lw}"${dash}/>`;
+      return `<path d="${ellipsePath((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, (b.x2 - b.x1) / 2, (b.y2 - b.y1) / 2, ((o.angle ?? 0) * Math.PI) / 180)}" fill="${fillOr('none')}" stroke="${ink}" stroke-width="${lw}"${dash}/>`;
     case 'line':
     case 'arrow':
     case 'darrow':
@@ -224,14 +226,15 @@ export function shapeSvg(o: Shape): string {
         heads.map((hd) => `<polygon points="${hd.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="${ink}"/>`).join('');
     }
     default: {
+      if (typeof o.kind !== 'string') return '';
       if (o.kind.startsWith('orbital')) return orbitalSvg(o, ink, lw);
-      const g = GLASS[o.kind];
+      const g = Object.prototype.hasOwnProperty.call(GLASS, o.kind) ? GLASS[o.kind] : undefined;
       if (!g) return '';
       const m = mapper(o);
       let out = '';
       // ガスバーナーの炎は色付き、ほかは塗りを指定したときだけ液体を描く
       if (g.liquid && (o.fill || o.kind === 'burner')) {
-        const fill = o.fill ?? '#f6a623';
+        const fill = fillOr('#f6a623');
         out += `<path d="${mapPath(g.liquid, m)}" fill="${fill}" fill-opacity="${o.kind === 'burner' ? 0.85 : 0.55}" stroke="none"/>`;
       }
       for (const d of [...g.outline, ...(g.extra ?? [])]) out += `<path d="${mapPath(d, m)}" fill="none" stroke="${ink}" stroke-width="${lw}" stroke-linejoin="round" stroke-linecap="round"${dash}/>`;
@@ -240,10 +243,11 @@ export function shapeSvg(o: Shape): string {
   }
 }
 
+/** 画像は data:image/(png|jpeg|gif|webp);base64 のみ描く (外部 URL・SVG は描かない: 追跡・スクリプト対策) */
 export function imageSvg(o: ImageObject): string {
+  if (!isSafeImageHref(o.href)) return '';
   const b = normBox(o);
-  const href = o.href.replace(/"/g, '%22');
-  return `<image x="${f(b.x1)}" y="${f(b.y1)}" width="${f(b.x2 - b.x1)}" height="${f(b.y2 - b.y1)}" preserveAspectRatio="none" href="${href}"/>`;
+  return `<image x="${f(b.x1)}" y="${f(b.y1)}" width="${f(b.x2 - b.x1)}" height="${f(b.y2 - b.y1)}" preserveAspectRatio="none" href="${attr(o.href)}"/>`;
 }
 
 /** TLC の各スポットの中心 */
@@ -264,7 +268,7 @@ export function tlcSpots(o: TlcPlate): { lane: number; spot: number; x: number; 
 }
 
 export function tlcSvg(o: TlcPlate, text: TextFn): string {
-  const ink = o.color ?? '#000';
+  const ink = safeColor(o.color, '#000');
   const b = normBox(o);
   const w = b.x2 - b.x1, h = b.y2 - b.y1;
   const lw = f(ACS.lineWidth);
@@ -275,15 +279,15 @@ export function tlcSvg(o: TlcPlate, text: TextFn): string {
   out += `<line x1="${f(b.x1)}" y1="${f(yf)}" x2="${f(b.x2)}" y2="${f(yf)}" stroke="${ink}" stroke-width="0.4"/>`;
   for (const s of tlcSpots(o)) {
     const spot = o.lanes[s.lane].spots[s.spot];
-    const fill = spot.color ?? '#3a3f47';
+    const fill = safeColor(spot.color, '#3a3f47');
     out += `<ellipse cx="${f(s.x)}" cy="${f(s.y)}" rx="${f(s.rx)}" ry="${f(s.ry)}" fill="${fill}" fill-opacity="${spot.faint ? 0.3 : 0.85}"/>`;
-    if (o.showRf) out += text(s.x + s.rx + 1, s.y + 2, spot.rf.toFixed(2), 5.5, ink, 'start');
+    if (o.showRf) out += text(s.x + s.rx + 1, s.y + 2, Number(spot.rf).toFixed(2), 5.5, ink, 'start');
   }
   // 原点の印とレーン名 (板の下)
   o.lanes.forEach((ln, i) => {
     const x = b.x1 + (w * (i + 0.5)) / n;
     out += `<line x1="${f(x)}" y1="${f(y0 - 1)}" x2="${f(x)}" y2="${f(y0 + 1)}" stroke="${ink}" stroke-width="0.4"/>`;
-    if (ln.label) out += text(x, b.y2 + 8, ln.label, 7, ink, 'middle');
+    if (ln.label) out += text(x, b.y2 + 8, String(ln.label), 7, ink, 'middle');
   });
   return out;
 }
@@ -303,7 +307,7 @@ export function energyGeom(o: EnergyDiagram): { pts: Pt[]; seg: number; plot: { 
 }
 
 export function energySvg(o: EnergyDiagram, text: TextFn): string {
-  const ink = o.color ?? '#000';
+  const ink = safeColor(o.color, '#000');
   const lw = ACS.lineWidth;
   const { pts, seg, plot } = energyGeom(o);
   const b = normBox(o);
@@ -340,12 +344,12 @@ export function energySvg(o: EnergyDiagram, text: TextFn): string {
   });
   o.levels.forEach((l, i) => {
     const p = pts[i];
-    const val = o.showValues !== false ? `${Number(l.energy.toFixed(1))}` : '';
+    const val = o.showValues !== false ? `${Number(Number(l.energy).toFixed(1))}` : '';
     if (l.ts) {
-      out += text(p.x, p.y - 4, l.label, 7, ink, 'middle');
+      out += text(p.x, p.y - 4, String(l.label ?? ''), 7, ink, 'middle');
       if (val) out += text(p.x, p.y - 11, val, 6, ink, 'middle');
     } else {
-      out += text(p.x, p.y + 8, l.label, 7, ink, 'middle');
+      out += text(p.x, p.y + 8, String(l.label ?? ''), 7, ink, 'middle');
       if (val) out += text(p.x, p.y - 3, val, 6, ink, 'middle');
     }
   });

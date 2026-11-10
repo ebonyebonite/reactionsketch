@@ -96,7 +96,7 @@ export function SettingsDialog() {
       <section className="set-sec">
         <h3>ヘルプ</h3>
         <div className="btns">
-          <button type="button" className="mini" onClick={() => { setPrefs({ tourDone: false }); openOverlay({ kind: 'tour' }); }}>はじめてガイドをもう一度見る</button>
+          <button type="button" className="mini" onClick={() => { setPrefs({ tourDone: false, welcomeDismissed: false }); openOverlay({ kind: 'tour' }); }}>はじめてガイドをもう一度見る</button>
           <button type="button" className="mini" onClick={() => runCommand('help.open')}>使い方を開く</button>
         </div>
       </section>

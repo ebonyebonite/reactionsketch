@@ -1,0 +1,32 @@
+/* はじめてガイド: 周りを暗くして対象だけ明るく見せる */
+.tour-layer { position: fixed; inset: 0; z-index: 1000; }
+.tour-dim { position: absolute; inset: 0; background: rgba(10, 14, 22, 0.5); }
+.tour-hole {
+  position: absolute; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 9999px rgba(10, 14, 22, 0.5);
+  transition: left 0.2s ease, top 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+.tour-pop {
+  position: absolute; width: min(320px, calc(100vw - 24px)); padding: 14px 16px 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text);
+  box-shadow: var(--shadow); transition: left 0.2s ease, top 0.2s ease;
+}
+@media (prefers-reduced-motion: reduce) { .tour-hole, .tour-pop { transition: none; } }
+.tour-head { display: flex; align-items: baseline; gap: 8px; }
+.tour-count { flex: none; font-size: 11.5px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tour-title { margin: 0; font-size: 15px; font-weight: 600; }
+.tour-body { margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
+.tour-dots { display: flex; gap: 5px; margin-top: 12px; }
+.tour-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+.tour-dots span.done { background: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.tour-dots span.on { background: var(--accent); width: 16px; border-radius: 3px; }
+.tour-btns { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.tour-sp { flex: 1; }
+.tour-btns .mini { min-height: 32px; padding: 4px 14px; font-size: 13px; }
+.tour-skip { border: 0; background: none; padding: 6px 2px; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.tour-skip:hover { color: var(--text); text-decoration: underline; }
+.tour-pop button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) {
+  .tour-btns .mini { min-height: 40px; }
+  .tour-skip { min-height: 40px; }
+}

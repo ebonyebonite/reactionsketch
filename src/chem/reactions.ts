@@ -6,6 +6,8 @@ import { fold, rankFuzzy } from './fuzzy';
 
 export interface NamedReaction {
   names: string[];
+  /** 分野 (ROWS の区切り。'アルケン' など) */
+  category: string;
   reactants: string[];
   products: string[];
   above: string;
@@ -14,8 +16,10 @@ export interface NamedReaction {
 
 type Row = [string, string, string?, string?];
 
-const ROWS: Row[] = [
+/** 文字列だけの要素は分野の区切り (以降の反応の category) */
+const ROWS: (Row | string)[] = [
   // ---- アルカン・ハロゲン化アルキル ----
+  'アルカン・ハロゲン化アルキル',
   ['ラジカルハロゲン化|radical halogenation|塩素化|chlorination of alkane', 'C1CCCCC1>>ClC1CCCCC1', 'Cl2', 'hν'],
   ['アリル位臭素化|allylic bromination|NBS 臭素化|Wohl-Ziegler', 'C1=CCCCC1>>BrC1C=CCCC1', 'NBS', 'hν, CCl4'],
   ['スズヒドリドによるラジカル還元|radical dehalogenation|ラジカル還元|Bu3SnH 還元|tin hydride reduction|脱ハロゲン化', 'BrC1CCCCC1>>C1CCCCC1', 'Bu3SnH, AIBN', 'ベンゼン, Δ'],
@@ -32,6 +36,7 @@ const ROWS: Row[] = [
   ['スルフィドの酸化|sulfide oxidation|スルホキシド', 'CSC>>CS(C)=O', 'H2O2', 'H2O'],
 
   // ---- アルケン ----
+  'アルケン',
   ['HX の付加|addition of HBr|マルコフニコフ則|Markovnikov addition|求電子付加', 'CC(C)=C>>CC(C)(C)Br', 'HBr', 'Et2O'],
   ['HBr のラジカル付加|anti-Markovnikov addition|逆マルコフニコフ付加|peroxide effect', 'CCCC=C>>CCCCCBr', 'HBr', 'ROOR, hν'],
   ['酸触媒水和|acid-catalyzed hydration', 'CC(C)=C>>CC(C)(C)O', 'H2O', 'H2SO4'],
@@ -53,6 +58,7 @@ const ROWS: Row[] = [
   ['オレフィンメタセシス|olefin metathesis|閉環メタセシス|ring-closing metathesis|RCM', 'C=CCC(CC=C)(C(=O)OCC)C(=O)OCC>>CCOC(=O)C1(C(=O)OCC)CC=CC1.C=C', 'Grubbs 触媒', 'CH2Cl2'],
 
   // ---- アルキン ----
+  'アルキン',
   ['アルキンへの HX 付加|addition of HBr to alkyne', 'CCCCC#C>>CCCCC(Br)=C', 'HBr', 'CH3CO2H'],
   ['アルキンの臭素化|bromination of alkyne', 'CCCCC#C>>CCCCC(Br)(Br)C(Br)Br', '2 Br2', 'CH2Cl2'],
   ['アルキンの水和|hydration of alkyne|水銀触媒水和|Kucherov', 'CCCCC#C>>CCCCC(C)=O', 'H2O, H2SO4', 'HgSO4'],
@@ -67,6 +73,7 @@ const ROWS: Row[] = [
   ['ヒュスゲン環化付加|Huisgen cycloaddition|クリック反応|click reaction|CuAAC', 'CCCCN=[N+]=[N-].C#Cc1ccccc1>>CCCCn1cc(-c2ccccc2)nn1', 'CuSO4, アスコルビン酸 Na', 't-BuOH, H2O'],
 
   // ---- 共役ジエン・ペリ環状反応 ----
+  '共役ジエン・ペリ環状反応',
   ['共役ジエンへの付加|1,4-addition|1,2-付加と 1,4-付加|conjugate diene addition', 'C=CC=C>>CC(Br)C=C.CC=CCBr', 'HBr', ''],
   ['ディールス・アルダー反応|Diels-Alder reaction|DA 反応|[4+2] 環化付加', 'C=CC=C.C=CC(C)=O>>CC(=O)C1CC=CCC1', '', 'Δ'],
   ['電子環状反応|electrocyclic reaction|電子環状閉環', 'C/C=C/C=C\\C=C\\C>>C[C@H]1C=CC=C[C@H]1C', '', 'Δ'],
@@ -75,6 +82,7 @@ const ROWS: Row[] = [
   ['クライゼン転位|Claisen rearrangement', 'C=CCOc1ccccc1>>C=CCc1ccccc1O', '', '250 °C'],
 
   // ---- 芳香族 ----
+  '芳香族',
   ['芳香族臭素化|aromatic bromination|ベンゼンの臭素化', 'c1ccccc1>>Brc1ccccc1', 'Br2', 'FeBr3'],
   ['芳香族塩素化|aromatic chlorination', 'c1ccccc1>>Clc1ccccc1', 'Cl2', 'FeCl3'],
   ['芳香族ヨウ素化|aromatic iodination', 'c1ccccc1>>Ic1ccccc1', 'I2', 'CuCl2'],
@@ -99,6 +107,7 @@ const ROWS: Row[] = [
   ['ウルマン反応|Ullmann reaction|Ullmann coupling', 'Ic1ccccc1>>c1ccc(-c2ccccc2)cc1', 'Cu', 'Δ'],
 
   // ---- クロスカップリング ----
+  'クロスカップリング',
   ['鈴木カップリング|Suzuki coupling|鈴木・宮浦カップリング|Suzuki-Miyaura', 'Brc1ccccc1.Cc1ccc(B(O)O)cc1>>Cc1ccc(-c2ccccc2)cc1', 'Pd(PPh3)4', 'K2CO3, toluene/H2O'],
   ['溝呂木・ヘック反応|Heck reaction|Mizoroki-Heck', 'Brc1ccccc1.C=CC(=O)OC>>COC(=O)/C=C/c1ccccc1', 'Pd(OAc)2, P(o-tol)3', 'Et3N'],
   ['根岸カップリング|Negishi coupling', 'Brc1ccccc1.CCCC[Zn]Cl>>CCCCc1ccccc1', 'Pd(PPh3)4', 'THF'],
@@ -108,6 +117,7 @@ const ROWS: Row[] = [
   ['バックワルト・ハートウィグ アミノ化|Buchwald-Hartwig amination', 'Brc1ccccc1.C1COCCN1>>c1ccc(N2CCOCC2)cc1', 'Pd2(dba)3, BINAP', 'NaOt-Bu, toluene'],
 
   // ---- アルコール・フェノール ----
+  'アルコール・フェノール',
   ['NaBH4 還元|sodium borohydride reduction|アルデヒドの還元', 'O=Cc1ccccc1>>OCc1ccccc1', '1. NaBH4, EtOH\n2. H3O+', ''],
   ['ケトンの還元|ketone reduction', 'CCCC(C)=O>>CCCC(C)O', '1. NaBH4, EtOH\n2. H3O+', ''],
   ['LiAlH4 還元|lithium aluminum hydride reduction|エステルの還元', 'CCCC(=O)OC>>CCCCO.CO', '1. LiAlH4, THF\n2. H3O+', ''],
@@ -140,6 +150,7 @@ const ROWS: Row[] = [
   ['シリルエーテルの脱保護|silyl ether deprotection|TBAF', 'CC(C)(C)[Si](C)(C)OCC1CCCCC1>>OCC1CCCCC1', 'TBAF', 'THF'],
 
   // ---- エーテル・エポキシド ----
+  'エーテル・エポキシド',
   ['ウィリアムソンエーテル合成|Williamson ether synthesis', 'OC1CCCCC1>>COC1CCCCC1', '1. NaH, THF\n2. CH3I', ''],
   ['アルコキシ水銀化|alkoxymercuration', 'C1=CCCCC1>>CCOC1CCCCC1', '1. Hg(O2CCF3)2, EtOH\n2. NaBH4', ''],
   ['エーテルの酸開裂|acidic cleavage of ether', 'CCOC(C)C>>CCI.CC(C)O', 'HI', 'H2O'],
@@ -148,6 +159,7 @@ const ROWS: Row[] = [
   ['シャープレス不斉エポキシ化|Sharpless epoxidation', 'C/C=C/CO>>CC1OC1CO', 'Ti(Oi-Pr)4, (+)-DET, t-BuOOH', 'CH2Cl2, −20 °C'],
 
   // ---- アルデヒド・ケトン ----
+  'アルデヒド・ケトン',
   ['エステルの DIBAL 還元|DIBAL reduction|アルデヒドの合成', 'CCCCC(=O)OC>>CCCCC=O', '1. DIBAL-H, toluene, −78 °C\n2. H3O+', ''],
   ['酸塩化物の還元|reduction of acid chloride', 'O=C(Cl)c1ccccc1>>O=Cc1ccccc1', '1. LiAlH(Ot-Bu)3, THF\n2. H3O+', ''],
   ['カルボニルの水和|hydration of carbonyl|gem-ジオール', 'CC=O>>CC(O)O', 'H2O', ''],
@@ -171,6 +183,7 @@ const ROWS: Row[] = [
   ['ファボルスキー転位|Favorskii rearrangement', 'O=C1CCCCC1Cl>>COC(=O)C1CCCC1', 'NaOCH3', 'CH3OH'],
 
   // ---- カルボン酸・誘導体 ----
+  'カルボン酸・誘導体',
   ['ニトリルの加水分解|nitrile hydrolysis', 'CCCCC#N>>CCCCC(=O)O', 'H3O+', 'Δ'],
   ['フィッシャーエステル化|Fischer esterification|エステル化|esterification', 'OC(=O)c1ccccc1.CO>>COC(=O)c1ccccc1', 'H2SO4 (cat.)', 'Δ'],
   ['酸塩化物の生成|acid chloride formation', 'OC(=O)c1ccccc1>>O=C(Cl)c1ccccc1', 'SOCl2', 'CHCl3'],
@@ -190,6 +203,7 @@ const ROWS: Row[] = [
   ['アルント・アイシュタート反応|Arndt-Eistert reaction|ウォルフ転位|Wolff rearrangement', 'OC(=O)c1ccccc1>>OC(=O)Cc1ccccc1', '1. SOCl2\n2. CH2N2\n3. Ag2O, H2O', ''],
 
   // ---- カルボニル α 置換 ----
+  'カルボニル α 置換',
   ['ケトンの α-ハロゲン化|alpha-halogenation|α-臭素化', 'O=C1CCCCC1>>O=C1CCCCC1Br', 'Br2', 'CH3CO2H'],
   ['ヘル・フォルハルト・ゼリンスキー反応|Hell-Volhard-Zelinskii reaction|HVZ 反応', 'CCCC(=O)O>>CCC(Br)C(=O)O', '1. Br2, PBr3\n2. H2O', ''],
   ['ハロホルム反応|haloform reaction|ヨードホルム反応|iodoform', 'CC(=O)c1ccccc1>>O=C(O)c1ccccc1.IC(I)I', '1. I2, NaOH\n2. H3O+', ''],
@@ -199,6 +213,7 @@ const ROWS: Row[] = [
   ['ストーク エナミン反応|Stork enamine reaction', 'O=C1CCCCC1.C=CC(C)=O>>CC(=O)CCC1CCCCC1=O', '1. ピロリジン, H+ (cat.)\n2. H3O+', ''],
 
   // ---- カルボニル縮合 ----
+  'カルボニル縮合',
   ['アルドール反応|aldol reaction|アルドール付加|aldol addition', 'CCCC=O>>CCCC(O)C(CC)C=O', 'NaOH', 'EtOH'],
   ['アルドール縮合|aldol condensation', 'O=C1CCCCC1>>O=C1CCCCC1=C1CCCCC1', 'NaOH', 'EtOH, Δ'],
   ['クライゼン・シュミット縮合|Claisen-Schmidt condensation|交差アルドール|crossed aldol', 'O=Cc1ccccc1.CC(C)=O>>CC(=O)/C=C/c1ccccc1', 'NaOH', 'EtOH'],
@@ -216,6 +231,7 @@ const ROWS: Row[] = [
   ['森田・ベイリス・ヒルマン反応|Morita-Baylis-Hillman reaction|Baylis-Hillman', 'O=Cc1ccccc1.C=CC(=O)OC>>C=C(C(=O)OC)C(O)c1ccccc1', 'DABCO', ''],
 
   // ---- アミン ----
+  'アミン',
   ['ガブリエル合成|Gabriel synthesis', 'O=C1NC(=O)c2ccccc21.BrCc1ccccc1>>NCc1ccccc1', '1. KOH, EtOH\n2. NaOH, H2O', ''],
   ['還元的アミノ化|reductive amination', 'O=C1CCCCC1.CN>>CNC1CCCCC1', 'NaBH(OAc)3', 'CH2Cl2'],
   ['アジドの還元|azide synthesis and reduction|アジド合成', 'CCCCBr>>CCCCN', '1. NaN3, EtOH\n2. LiAlH4\n3. H2O', ''],
@@ -234,6 +250,7 @@ const ROWS: Row[] = [
   ['ジアゾカップリング|azo coupling|アゾ染料', 'N#[N+]c1ccccc1.Oc1ccccc1>>Oc1ccc(/N=N/c2ccccc2)cc1', 'NaOH', 'H2O, 0 °C'],
 
   // ---- 複素環 ----
+  '複素環',
   ['フィッシャーインドール合成|Fischer indole synthesis', 'NNc1ccccc1.CC(C)=O>>Cc1cc2ccccc2[nH]1', 'ZnCl2', 'Δ'],
   ['パール・クノール合成|Paal-Knorr synthesis|ピロール合成', 'CC(=O)CCC(C)=O.Nc1ccccc1>>Cc1ccc(C)n1-c1ccccc1', 'CH3CO2H', 'Δ'],
   ['ハンチュ ピリジン合成|Hantzsch pyridine synthesis|ジヒドロピリジン', 'O=Cc1ccccc1.CCOC(=O)CC(C)=O.N>>CCOC(=O)C1=C(C)NC(C)=C(C(=O)OCC)C1c1ccccc1', '', 'EtOH, Δ'],
@@ -241,6 +258,7 @@ const ROWS: Row[] = [
   ['スクラウプ キノリン合成|Skraup synthesis', 'Nc1ccccc1.OCC(O)CO>>c1ccc2ncccc2c1', 'H2SO4, PhNO2', 'Δ'],
 
   // ---- 生体分子 ----
+  '生体分子',
   ['ストレッカー合成|Strecker synthesis|アミノ酸の合成', 'CC(C)C=O>>CC(C)C(N)C(=O)O', '1. NH4Cl, KCN\n2. H3O+', ''],
   ['アミドマロン酸合成|amidomalonate synthesis', 'CCOC(=O)C(NC(C)=O)C(=O)OCC>>NC(Cc1ccccc1)C(=O)O', '1. NaOEt, EtOH\n2. PhCH2Br\n3. H3O+, Δ', ''],
   ['ペプチド結合の生成|peptide coupling|DCC カップリング|amide coupling', 'CC(NC(=O)OC(C)(C)C)C(=O)O.COC(=O)CN>>COC(=O)CNC(=O)C(C)NC(=O)OC(C)(C)C', 'DCC', 'CH2Cl2'],
@@ -252,6 +270,7 @@ const ROWS: Row[] = [
   ['糖の酸化|oxidation of sugar|アルドン酸', 'O=CC(O)C(O)C(O)C(O)CO>>O=C(O)C(O)C(O)C(O)C(O)CO', 'Br2', 'H2O'],
 
   // ---- 工業的製法 ----
+  '工業的製法',
   ['クメン法|cumene process|Hock process|ホック法|フェノールの工業的製法', 'c1ccccc1.CC=C>>Oc1ccccc1.CC(C)=O', '1. H3PO4 (クメン)\n2. O2 (ヒドロペルオキシド)\n3. H2SO4', ''],
   ['ハーバー・ボッシュ法|Haber-Bosch process|Haber process|アンモニア合成', 'N#N.[H][H]>>N', 'Fe 触媒', '400–500 °C, 20–30 MPa'],
   ['オストワルト法|Ostwald process|硝酸の工業的製法', 'N.O=O>>O[N+](=O)[O-]', '1. Pt, O2\n2. O2, H2O', ''],
@@ -260,10 +279,23 @@ const ROWS: Row[] = [
   ['エチレンのワッカー法|Wacker process|アセトアルデヒドの工業的製法', 'C=C>>CC=O', 'PdCl2, CuCl2, O2', 'H2O'],
 ];
 
-export const REACTIONS: NamedReaction[] = ROWS.map(([names, rxn, above, below]) => {
-  const [l, r] = rxn.split('>>');
-  return { names: names.split('|'), reactants: l.split('.'), products: r.split('.'), above: above ?? '', below: below ?? '' };
-});
+/** 分野の一覧 (ROWS の並び順) */
+export const REACTION_CATEGORIES: string[] = ROWS.filter((r): r is string => typeof r === 'string');
+
+export const REACTIONS: NamedReaction[] = (() => {
+  let category = '';
+  const out: NamedReaction[] = [];
+  for (const row of ROWS) {
+    if (typeof row === 'string') {
+      category = row;
+      continue;
+    }
+    const [names, rxn, above, below] = row;
+    const [l, r] = rxn.split('>>');
+    out.push({ names: names.split('|'), category, reactants: l.split('.'), products: r.split('.'), above: above ?? '', below: below ?? '' });
+  }
+  return out;
+})();
 
 function normalize(s: string): string {
   return fold(s).replace(/(反応|reaction|rxn|法|process)$/, '');

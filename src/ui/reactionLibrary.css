@@ -1,0 +1,68 @@
+/* ---- 反応ライブラリ ---- */
+.rs-modal.rl-modal { height: min(820px, 88vh); height: min(820px, 88dvh); }
+.rl-modal .rs-modal-body { padding: 0; overflow: hidden; display: flex; }
+.rl-search {
+  width: 100%; max-width: 420px; height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel-2); color: var(--text); font: inherit;
+}
+.rl-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.rl-layout { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: 220px 1fr; }
+.rl-nav {
+  overflow-y: auto; padding: 10px 8px; border-right: 1px solid var(--border); background: var(--panel-2);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.rl-nav-item {
+  display: flex; align-items: center; gap: 8px; text-align: left; border: 0; background: none; color: var(--text);
+  padding: 7px 10px; border-radius: 7px; cursor: pointer; min-height: 34px; line-height: 1.3;
+}
+.rl-nav-item span:first-child { flex: 1; min-width: 0; }
+.rl-nav-item:hover { background: var(--accent-soft); }
+.rl-nav-item.on { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.rl-nav-item:focus-visible, .rl-main:focus-visible, .rl-mech:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rl-count { flex: none; font-size: 11px; color: var(--muted); font-weight: 400; }
+.rl-body { min-width: 0; overflow-y: auto; padding: 12px 18px 20px; overscroll-behavior: contain; }
+.rl-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 2px 0 10px; font-weight: 650; }
+.rl-hint { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+.rl-empty { color: var(--muted); font-size: 13px; }
+.rl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.rl-card {
+  display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 9px; background: var(--panel);
+  overflow: hidden; contain: content;
+}
+.rl-card:hover { border-color: var(--accent); }
+.rl-main {
+  flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: left;
+  border: 0; background: none; color: inherit; padding: 10px 12px 8px; cursor: pointer; font: inherit;
+}
+.rl-name { font-weight: 650; line-height: 1.35; }
+.rl-alt { font-size: 11.5px; color: var(--muted); }
+.rl-pic {
+  margin-top: 8px; height: 92px; display: flex; align-items: center; justify-content: center; gap: 4px;
+  background: #fff; color: #1f2328; border-radius: 6px; padding: 4px 6px; overflow: hidden;
+}
+.rl-side { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 0 1 auto; }
+.rl-pic .thumb { height: 64px; width: auto; max-width: 110px; border: 0; background: none; flex: 0 1 auto; min-width: 0; }
+.rl-pic .thumb.loading { font-size: 10px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #667085; }
+.rl-plus { font-size: 14px; color: #667085; }
+.rl-arrow { flex: none; width: 72px; display: flex; flex-direction: column; align-items: stretch; text-align: center; font-size: 9.5px; line-height: 1.2; color: #344054; }
+.rl-arrow svg { width: 100%; height: 10px; }
+.rl-above, .rl-below { display: flex; flex-direction: column; min-height: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rl-above span { overflow: hidden; text-overflow: ellipsis; }
+.rl-ph { width: 100%; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #f2f4f7, #fafbfc, #f2f4f7); }
+.rl-actions { display: flex; align-items: center; gap: 8px; padding: 0 12px 10px; }
+.rl-cat { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rl-mech { flex: none; }
+@media (pointer: coarse) { .rl-nav-item { min-height: 44px; } .rl-mech { min-height: 40px; padding: 0 12px; } }
+/* スマホ: 分野は上の横スクロールのチップ */
+@media (max-width: 760px) {
+  .rs-modal.rl-modal { height: 92dvh; }
+  .rl-modal .rs-modal-head { flex-wrap: wrap; }
+  .rl-modal .rs-modal-extra { order: 3; flex-basis: 100%; padding-right: 10px; }
+  .rl-search { max-width: none; height: 40px; }
+  .rl-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .rl-nav { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--border); padding: 8px 10px; gap: 6px; scrollbar-width: none; }
+  .rl-nav-item { flex: none; white-space: nowrap; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; background: var(--panel); }
+  .rl-nav-item.on { border-color: var(--accent); }
+  .rl-body { padding: 10px 12px calc(18px + env(safe-area-inset-bottom)); }
+  .rl-grid { grid-template-columns: 1fr; }
+}

@@ -5,6 +5,7 @@ import { commit, toast } from '../editor/store';
 import { getPrefs } from '../editor/prefs';
 import { doc, fitIfOffscreen, layoutChanged, layoutSchemeWithWidth, selectionScope } from '../editor/actions';
 import { PAGE_WIDTHS, resolveOverlaps, tidyAll } from './layout';
+import { registerProjectionCommands } from './projectionCommands';
 
 /** 結合長・整列・重なりをまとめて整える (選択があればその範囲)。commit は 1 回 */
 export function tidyDrawing(): void {
@@ -67,4 +68,5 @@ export function registerAutoCommands(): void {
       run: resolveDrawingOverlaps,
     },
   ]);
+  registerProjectionCommands();
 }

@@ -20,7 +20,7 @@ async function importFromHash(): Promise<boolean> {
   busy = true;
   try {
     const { name, doc } = await decodeShare(token);
-    addTab(doc, `共有: ${name}`);
+    addTab(doc, name.startsWith('共有: ') ? name : `共有: ${name}`);
     toast('共有された図を新しいタブで開きました');
     return true;
   } catch (e) {

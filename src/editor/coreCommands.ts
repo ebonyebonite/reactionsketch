@@ -16,15 +16,10 @@ import { selectionSize } from '../model/edit';
 import { SHAPES } from '../render/shapes';
 import { EXAMPLES } from '../examples';
 import { TEMPLATES } from '../templates';
+import { openHelp } from '../ui/Help';
 
 const hasSelection = () => selectionSize(getState().selection) > 0;
 const clickInput = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.click();
-
-/** ヘルプ (使い方) は従来のダイアログ。重ねている画面は閉じてから開く */
-function openHelp(): void {
-  closeOverlay();
-  setState({ helpOpen: true, contextMenu: null });
-}
 
 /** 従来のダイアログを開く (重ねている画面は閉じる) */
 const openLegacy = (patch: Parameters<typeof setState>[0]) => () => {
@@ -167,7 +162,7 @@ const EXAMPLE_CMDS: Command[] = EXAMPLES.map((ex, i): Command => ({
 }));
 
 const HELP: Command[] = [
-  { id: 'help.open', title: '使い方 (ショートカット一覧)', group: 'ヘルプ', shortcut: 'F1', keywords: ['つかいかた', 'help', 'ヘルプ', 'ショートカット'], run: openHelp },
+  { id: 'help.open', title: '使い方 (ショートカット一覧)', group: 'ヘルプ', shortcut: 'F1', keywords: ['つかいかた', 'help', 'ヘルプ', 'ショートカット'], run: () => openHelp() },
   { id: 'help.tour', title: 'はじめてガイド', group: 'ヘルプ', keywords: ['がいど', 'tour', 'tutorial', 'チュートリアル'], description: '基本の操作を順に案内する', run: () => openOverlay({ kind: 'tour' }) },
 ];
 

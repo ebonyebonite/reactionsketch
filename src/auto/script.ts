@@ -7,7 +7,7 @@
 //   シクロヘキサノン -> ? ; 1. CH3MgBr 2. H3O+
 //   # 1 行に続けて書いてもよい
 //   A -> B ; 試薬 -> C ; 試薬
-//   # 矢印のない行は化合物の一覧
+//   # 矢印が 1 つもない入力は、化合物の一覧として並べる
 //   酢酸エチル, CH3CH2OH, PhCHO
 import type { Doc, Id } from '../model/types';
 import { emptyDoc, newId } from '../model/types';

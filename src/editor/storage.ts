@@ -311,7 +311,9 @@ export class ProjectStorage {
       const metas = await this.listSnapshots();
       if (metas.length) {
         const last = await this.backend.get('snapshots', metas[0].id);
-        if (isObj(last) && last.hash === hash) return null;
+        // 名前を付けて手動で残すときは、同じ中身でも版を作る
+        const named = reason === 'manual' && !!label;
+        if (!named && isObj(last) && last.hash === hash) return null;
       }
       const at = this.now();
       // 同じ時刻でも並ぶように、通し番号を桁をそろえて入れる

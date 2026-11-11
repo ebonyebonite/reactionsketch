@@ -769,9 +769,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* 大きい表示では文字が大きいぶん、早めにラベルを隠す */
 @media (max-width: 1919px) { :root[data-ui-scale="large"] .top-btn .lbl-p4 { display: none; } }
 @media (max-width: 1700px) { :root[data-ui-scale="large"] .top-btn .lbl-p3, :root[data-ui-scale="large"] .brand span { display: none; } }
-@media (max-width: 1439px) { :root[data-ui-scale="large"] .top-btn .lbl-p2 { display: none; } }
+@media (max-width: 1599px) { :root[data-ui-scale="large"] .top-btn .lbl-p2 { display: none; } }
 @media (max-width: 1300px) {
   :root[data-ui-scale="large"] .wide-only { display: none; }
   :root[data-ui-scale="large"] .narrow-only { display: block; }
 }
-@media (max-width: 1180px) { :root[data-ui-scale="large"] .top-btn .lbl-p1, :root[data-ui-scale="large"] .top-btn svg.caret { display: none; } }
+@media (max-width: 1500px) { :root[data-ui-scale="large"] .top-btn .lbl-p1, :root[data-ui-scale="large"] .top-btn svg.caret { display: none; } }

@@ -185,6 +185,15 @@ describe('版の履歴', () => {
     expect(await st.snapshot(stored(4, 'A'), 'auto')).not.toBeNull();
     expect(await st.listSnapshots()).toHaveLength(3);
   });
+  it('名前つきの手動保存は、同じ中身でも版を残す', async () => {
+    const { st, advance } = setup();
+    expect(await st.snapshot(stored(1, 'A'), 'auto')).not.toBeNull();
+    advance(MIN);
+    expect(await st.snapshot(stored(1, 'A'), 'manual')).toBeNull();
+    const m = await st.snapshot(stored(1, 'A'), 'manual', '提出前');
+    expect(m?.label).toBe('提出前');
+    expect(await st.listSnapshots()).toHaveLength(2);
+  });
   it('壊れた版は飛ばす・読み出しは corrupt', async () => {
     const backend = createMemoryBackend();
     const { st } = setup({ backend });

@@ -1,0 +1,74 @@
+/* 書き出しダイアログ */
+.exp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; }
+.exp-left { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.exp-scope { display: flex; flex-wrap: wrap; gap: 5px; }
+.exp-scope .mini, .exp-seg .mini { min-height: 30px; padding: 3px 12px; }
+.exp-preview {
+  position: relative; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px;
+  min-height: 280px; max-height: 52vh; overflow: auto; padding: 16px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2);
+}
+.exp-preview img {
+  display: block; max-width: 100%; max-height: calc(52vh - 40px); width: auto; height: auto;
+  background: #fff; box-shadow: 0 1px 4px rgba(16, 24, 40, 0.18);
+}
+.exp-preview.multi img { max-width: calc(50% - 10px); max-height: 200px; }
+/* 透明は市松模様で見せる */
+.exp-preview.checker img {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #e3e6eb 25%, transparent 25%), linear-gradient(-45deg, #e3e6eb 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e3e6eb 75%), linear-gradient(-45deg, transparent 75%, #e3e6eb 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+}
+.exp-empty { margin: 0; color: var(--muted); font-size: 13px; }
+.exp-size { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.exp-size b { color: var(--text); font-weight: 600; }
+
+.exp-right { min-width: 0; }
+.exp-h { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.exp-h:not(:first-child) { margin-top: 14px; }
+.exp-formats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.exp-format {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-height: 38px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); cursor: pointer; text-align: left;
+  font: inherit; font-size: 13px;
+}
+.exp-format:hover { border-color: var(--accent); }
+.exp-format.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.exp-format-name { font-weight: 600; }
+.exp-format-ext { font-size: 11px; color: var(--muted); }
+.exp-format.on .exp-format-ext { color: inherit; opacity: 0.8; }
+.exp-note { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); font-size: 12.5px; line-height: 1.55; }
+.exp-seg { display: flex; gap: 5px; }
+.exp-check { display: flex; align-items: center; margin-top: 10px; min-height: 28px; }
+
+.exp-copies { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 10px; font-size: 12.5px; }
+.exp-copies summary { cursor: pointer; color: var(--muted); min-height: 28px; display: flex; align-items: center; }
+.exp-copies summary:hover { color: var(--text); }
+.exp-links { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; }
+.exp-link {
+  border: 0; background: none; padding: 4px 0; color: var(--accent); cursor: pointer; font: inherit; font-size: 12.5px;
+}
+.exp-link:hover:not(:disabled) { text-decoration: underline; }
+.exp-link:disabled { color: var(--muted); opacity: 0.6; cursor: default; }
+
+.exp-foot { display: flex; justify-content: flex-end; gap: 8px; width: 100%; }
+.exp-foot .mini { min-height: 34px; padding: 4px 14px; font-size: 13px; }
+.exp-save { min-width: 120px; justify-content: center; }
+
+.export-dialog .exp-format:focus-visible, .export-dialog .mini:focus-visible, .export-dialog .exp-link:focus-visible,
+.export-dialog summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+@media (max-width: 720px) {
+  .exp-grid { grid-template-columns: 1fr; gap: 12px; }
+  .exp-preview { min-height: 160px; max-height: 34vh; }
+  .exp-preview img { max-height: calc(34vh - 40px); }
+  .exp-formats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .exp-format { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; padding: 5px 9px; }
+}
+@media (pointer: coarse) {
+  .exp-format { min-height: 44px; }
+  .exp-foot .mini, .exp-scope .mini, .exp-seg .mini { min-height: 40px; }
+}

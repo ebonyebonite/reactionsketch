@@ -1039,6 +1039,10 @@ export async function proposeMechanism(d: Doc, scheme: Scheme): Promise<Mechanis
   if (!scheme.left.length || !scheme.right.length) throw new Error('矢印の左右に原料と生成物を描いてください');
   const data = await findMechanismData(d, scheme).catch(() => null);
   if (data) return { ...(await buildMechanism(data)), generic: false };
+  // 機構テンプレート: 利用者の基質に教科書どおりの素反応の列を当てはめる (矢印が状態を正しく表すときだけ採用)
+  const tpl = await templateFromScheme(d, scheme).catch(() => null);
+  // 1 段階のテンプレート (SN2・E2) は 1 段階の矢印と同じ扱い (generic)
+  if (tpl) return { ...tpl, generic: tpl.steps <= 1 };
   // 光・開始剤・X2/HBr/Bu3SnH の反応はラジカル連鎖機構で
   const { radicalChainMechanism } = await import('./radical');
   const chain = await radicalChainMechanism(d, scheme).catch(() => null);
@@ -1046,6 +1050,21 @@ export async function proposeMechanism(d: Doc, scheme: Scheme): Promise<Mechanis
   const g = await genericMechanism(d, scheme);
   const half = Object.values(g.doc.objects).some((o) => o.type === 'curved' && o.head === 'half');
   return { ...g, radical: half, generic: true };
+}
+
+/** 描いた反応式に機構テンプレートを当てはめる。当てはまらない・矢印が合わない段階があれば null */
+async function templateFromScheme(d: Doc, scheme: Scheme): Promise<MechanismResult | null> {
+  const { smilesOf } = await import('./rdkit');
+  const { templateMechanism } = await import('./mechTemplates');
+  const left: string[] = [], right: string[] = [];
+  for (const c of scheme.left) left.push(await smilesOf(d, c));
+  for (const c of scheme.right) right.push(await smilesOf(d, c));
+  const text = [scheme.arrow.above, scheme.arrow.below].join('\n');
+  const data = await templateMechanism(left, right, text);
+  if (!data) return null;
+  const r = await buildMechanism(data);
+  if (r.inexact) return null;
+  return { ...r, title: data.title, added: data.added ?? [] };
 }
 
 /** 内蔵データのない反応: 原料 → 生成物を 1 段階の矢印で表す */

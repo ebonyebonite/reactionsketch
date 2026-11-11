@@ -1,6 +1,13 @@
 // 反応ごとのタブ (ダブルクリックで名前変更、ドラッグで並べ替え)
 import { useState } from 'react';
-import { addTab, closeTab, duplicateTab, moveTab, renameTab, switchTab, useStore } from '../editor/store';
+import { addTab, closeTab, duplicateTab, moveTab, renameTab, reopenClosedTab, switchTab, toast, useStore, type TabState } from '../editor/store';
+
+/** タブを閉じる。中身があれば「元に戻す」付きの知らせを出す (空のタブは黙って閉じる) */
+function closeWithUndo(t: TabState): void {
+  const empty = !Object.keys(t.doc.atoms).length && !t.doc.order.length && !Object.keys(t.doc.objects).length;
+  closeTab(t.id);
+  if (!empty) toast(`「${t.name}」を閉じました`, 'info', { action: { label: '元に戻す', run: reopenClosedTab } });
+}
 
 export function TabBar() {
   const tabs = useStore((s) => s.tabs);
@@ -26,9 +33,9 @@ export function TabBar() {
           onClick={() => switchTab(t.id)}
           onDoubleClick={() => setEditing(t.id)}
           onAuxClick={(e) => {
-            if (e.button === 1) closeTab(t.id);
+            if (e.button === 1) closeWithUndo(t);
           }}
-          title="ダブルクリックで名前を変更"
+          data-tip="ダブルクリックで名前を変更・ドラッグで並べ替え"
         >
           {editing === t.id ? (
             <input
@@ -48,22 +55,22 @@ export function TabBar() {
           ) : (
             <span className="tab-name">{t.name}</span>
           )}
-          <button className="tab-x" title="複製" aria-label="タブを複製" onClick={(e) => { e.stopPropagation(); duplicateTab(t.id); }}>⧉</button>
+          <button className="tab-x" data-tip="タブを複製" aria-label="タブを複製" onClick={(e) => { e.stopPropagation(); duplicateTab(t.id); }}>⧉</button>
           <button
             className="tab-x"
-            title="閉じる"
+            data-tip="タブを閉じる"
+            data-key="Ctrl+Shift+T で開き直す"
             aria-label="タブを閉じる"
             onClick={(e) => {
               e.stopPropagation();
-              const empty = !Object.keys(t.doc.atoms).length && !t.doc.order.length;
-              if (empty || confirm(`「${t.name}」を閉じますか？ (保存していない内容は失われます)`)) closeTab(t.id);
+              closeWithUndo(t);
             }}
           >
             ×
           </button>
         </div>
       ))}
-      <button className="tab-add" title="新しいタブ (Ctrl+T)" aria-label="新しいタブ" onClick={() => addTab()}>＋</button>
+      <button className="tab-add" data-tip="新しいタブ" data-key="Ctrl+T" aria-label="新しいタブ" onClick={() => addTab()}>＋</button>
     </div>
   );
 }

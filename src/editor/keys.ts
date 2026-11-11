@@ -5,9 +5,11 @@ import {
   pasteFromClipboard, selectAll, typeCoefficientDigit, duplicateSelection,
 } from './actions';
 import { selectionSize, emptySelection, selectedAtomIds } from '../model/edit';
-import { TOOL_KEYS } from '../ui/Toolbar';
-import { exportCurrent } from '../ui/TopBar';
+import { TOOL_KEYS } from './tools';
+import { exportCurrent } from '../io/exportCurrent';
 import { buildScene } from '../render/scene';
+import { runCommand } from './commands';
+import { isModalOpen } from './modalStack';
 
 export function fitView(): void {
   const t = activeTab();
@@ -23,7 +25,17 @@ export function fitView(): void {
   setView({ zoom: z, ox: w / 2 - ((b.x1 + b.x2) / 2) * z, oy: h / 2 - ((b.y1 + b.y2) / 2) * z });
 }
 
-function zoomBy(k: number): void {
+/** ダイアログ・重ねる画面が開いているか (開いている間はエディタのキー操作をしない) */
+export function dialogOpen(): boolean {
+  return isModalOpen() || !!getState().overlay || (typeof document !== 'undefined' && !!document.querySelector('.modal-back'));
+}
+
+/** 100% (zoom 2.2) に戻す。画面の中心を保つ */
+export function zoomTo100(): void {
+  zoomBy(2.2 / activeTab().view.zoom);
+}
+
+export function zoomBy(k: number): void {
   const t = activeTab();
   const el = document.getElementById('canvas-host');
   const w = (el?.clientWidth ?? 800) / 2, h = (el?.clientHeight ?? 600) / 2;
@@ -35,13 +47,31 @@ export function installKeys(): () => void {
   const onKey = (e: KeyboardEvent) => {
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+    // ダイアログを開いている間は背後のキャンバスを操作しない
+    if (dialogOpen()) return;
     const s = getState();
     if (s.editing) return;
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
 
+    if (e.key === 'F1') {
+      e.preventDefault();
+      runCommand('help.open');
+      return;
+    }
+
     if (mod) {
       switch (k) {
+        case ',':
+          e.preventDefault();
+          runCommand('app.settings');
+          return;
+        case 'e':
+          if (e.shiftKey) {
+            e.preventDefault();
+            runCommand('file.export');
+          }
+          return;
         case 'z':
           e.preventDefault();
           if (e.shiftKey) redo();
@@ -78,6 +108,10 @@ export function installKeys(): () => void {
           return;
         case 'p':
           e.preventDefault();
+          if (e.shiftKey) {
+            runCommand('app.palette');
+            return;
+          }
           exportCurrent('print').catch((err: Error) => toast(err.message, 'error'));
           return;
         case 's':
@@ -86,11 +120,12 @@ export function installKeys(): () => void {
           return;
         case 'o':
           e.preventDefault();
-          (document.querySelector('input[type=file]') as HTMLInputElement | null)?.click();
+          runCommand('file.open');
           return;
         case 't':
           e.preventDefault();
-          addTab();
+          if (e.shiftKey) runCommand('tab.reopenClosed');
+          else addTab();
           return;
         case 'l':
           e.preventDefault();
@@ -101,10 +136,9 @@ export function installKeys(): () => void {
           applyArrowsToNext();
           return;
         case 'k':
-          if (e.shiftKey) {
-            e.preventDefault();
-            cleanStructure();
-          }
+          e.preventDefault();
+          if (e.shiftKey) cleanStructure();
+          else runCommand('app.palette');
           return;
         case '0':
           e.preventDefault();
@@ -172,7 +206,7 @@ export function installKeys(): () => void {
         return;
       }
       case '?':
-        setState({ helpOpen: true });
+        runCommand('help.open');
         return;
     }
     const t = TOOL_KEYS[k];

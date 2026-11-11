@@ -149,3 +149,30 @@ describe('足りない元素を矢印の上下の試薬から補う', () => {
     await expect(run(['C=CC(C)(C)C'], ['CC(Br)C(C)(C)C'], 'Et2O')).rejects.toThrow(/矢印の上下/);
   });
 });
+
+describe('機構テンプレートを使った提案', () => {
+  const run = async (l: string[], r: string[], above = '', below = '') => {
+    const d = await buildReactionDoc(l, r, above, below);
+    return proposeMechanism(d, findScheme(d)!);
+  };
+
+  it('辞書と違う基質でも多段階の機構になる (SN1・HX 付加)', async () => {
+    const r = await run(['CCC(C)(C)Br'], ['CCC(C)(C)O'], 'H2O');
+    expect(r.generic).toBe(false);
+    expect(r.inexact).toBe(0);
+    expect(r.steps).toBe(3);
+    expect(r.title).toMatch(/SN1/);
+    // 2-メチル-2-ブテン + HBr → 第三級の臭化物 (マルコフニコフ則) を 2 段階で
+    const r2 = await run(['CC=C(C)C'], ['CCC(C)(C)Br'], 'HBr');
+    expect(r2.generic).toBe(false);
+    expect(r2.steps).toBe(2);
+    expect(r2.inexact).toBe(0);
+  }, 60000);
+
+  it('内蔵の機構は従来どおり', async () => {
+    const d = await buildReactionDoc(['CC(C)(C)Br', 'O'], ['CC(C)(C)O']);
+    const r = await proposeMechanism(d, findScheme(d)!);
+    expect(r.title).toBe('SN1 反応');
+    expect(r.steps).toBe(3);
+  }, 60000);
+});

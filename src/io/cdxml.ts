@@ -6,6 +6,10 @@ import { buildScene } from '../render/scene';
 import { parseRichLine } from '../render/richtext';
 import { implicitH } from '../model/graph';
 import { atomInk, hexOf, rgb01 } from '../model/colors';
+import { sanitizeDoc } from './sanitize';
+
+/** 読み込める CDXML の大きさの上限 (文字数) */
+const MAX_CDXML_LENGTH = 20 * 1024 * 1024;
 
 const SYMBOLS = [
   '', 'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr',
@@ -192,6 +196,7 @@ function textOf(el: Element): string {
 }
 
 export function fromCdxml(xml: string): Doc {
+  if (xml.length > MAX_CDXML_LENGTH) throw new Error('CDXML が大きすぎます (20 MB まで)');
   const dom = new DOMParser().parseFromString(xml, 'application/xml');
   if (dom.querySelector('parsererror')) throw new Error('CDXML を読み取れませんでした');
   const doc = emptyDoc();
@@ -336,5 +341,6 @@ export function fromCdxml(xml: string): Doc {
     const ink = colorOf(t.querySelector(':scope > s'));
     addObj({ id: newId('o'), type: 'text', x, y, text, size: ACS.captionSize, align: 'left', ...(ink ? { color: ink } : {}) });
   }
-  return doc;
+  // 外から来たデータなので、数値・文字列・参照を検証してから返す
+  return sanitizeDoc(doc);
 }

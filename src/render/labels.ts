@@ -258,7 +258,8 @@ export function layoutAtom(doc: Doc, atom: Atom): AtomLayout {
   // 非共有電子対
   const lonePairDots: AtomLayout['lonePairDots'] = [];
   if (atom.lonePairs > 0) {
-    const dirs = freeDirections(occupied, atom.lonePairs, [-Math.PI / 2, Math.PI / 2, 0, Math.PI]);
+    // 数の上限 (壊れたデータで固まらないように。ふつうは 4 まで)
+    const dirs = freeDirections(occupied, Math.min(8, Math.floor(atom.lonePairs)), [-Math.PI / 2, Math.PI / 2, 0, Math.PI]);
     for (const dir of dirs) {
       const r = ringR(dir) + 0.6;
       const cx = atom.x + Math.cos(dir) * r;

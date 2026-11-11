@@ -1,0 +1,69 @@
+/* ---- 使い方 (ヘルプ) ---- */
+.rs-modal.help-modal { height: min(760px, 86vh); height: min(760px, 86dvh); }
+.help-modal .rs-modal-body { padding: 0; overflow: hidden; display: flex; }
+.help-search {
+  width: 100%; max-width: 360px; height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel-2); color: var(--text); font: inherit;
+}
+.help-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.help-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 200px 1fr; }
+.help-nav {
+  overflow-y: auto; padding: 10px 8px; border-right: 1px solid var(--border); background: var(--panel-2);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.help-nav-item {
+  text-align: left; border: 0; background: none; color: var(--text); padding: 8px 12px; border-radius: 7px;
+  cursor: pointer; min-height: 36px; line-height: 1.3;
+}
+.help-nav-item:hover { background: var(--accent-soft); }
+.help-nav-item.on { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.help-nav-item:focus-visible, .help-try:focus-visible, .help-tour:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.help-body { overflow-y: auto; padding: 14px 22px 22px; overscroll-behavior: contain; }
+.help-h { margin: 4px 0 10px; font-size: 1.15em; }
+.help-count, .help-empty { margin: 4px 0 10px; color: var(--muted); font-size: 12.5px; }
+.help-topic {
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; background: var(--panel);
+  transition: box-shadow 0.4s, border-color 0.4s;
+}
+.help-topic.flash { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.help-topic-head { display: flex; align-items: baseline; gap: 10px; }
+.help-topic h4 { margin: 0; font-size: 1em; font-weight: 650; }
+.help-cat { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.help-topic p { margin: 6px 0 0; line-height: 1.65; }
+.help-topic mark, .help-body mark { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 1px; }
+.help-topic-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.help-keys { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.help-try { margin-left: auto; }
+.help-quick { padding: 12px 14px 14px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); margin-bottom: 12px; }
+.help-quick h4 { margin: 0 0 6px; font-size: 1em; }
+.help-quick ol { margin: 0 0 10px; padding-left: 1.4em; }
+.help-quick li { padding: 5px 0; line-height: 1.55; display: list-item; }
+.help-quick li .help-try { margin-left: 8px; }
+.help-shortcuts { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px 18px; align-items: start; }
+.help-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.help-table caption { text-align: left; font-weight: 650; padding: 0 0 6px; }
+.help-table th, .help-table td { text-align: left; vertical-align: top; padding: 5px 6px; border-top: 1px solid var(--border); line-height: 1.5; }
+.help-table th { font-weight: 400; white-space: nowrap; width: 1%; }
+.help-table kbd { white-space: nowrap; }
+.help-sep { color: var(--muted); }
+@media (pointer: coarse) { .help-nav-item { min-height: 44px; } .help-try { min-height: 40px; } }
+/* スマホ: 分類は上の横スクロールのチップ */
+@media (max-width: 760px) {
+  .rs-modal.help-modal { height: 92dvh; }
+  .help-modal .rs-modal-head { flex-wrap: wrap; }
+  .help-modal .rs-modal-extra { order: 3; flex-basis: 100%; padding-right: 10px; }
+  .help-search { max-width: none; height: 40px; }
+  .help-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .help-nav { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--border); padding: 8px 10px; gap: 6px; scrollbar-width: none; }
+  .help-nav-item { flex: none; white-space: nowrap; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; background: var(--panel); }
+  .help-nav-item.on { border-color: var(--accent); }
+  .help-body { padding: 12px 14px calc(18px + env(safe-area-inset-bottom)); }
+  .help-shortcuts { grid-template-columns: 1fr; }
+  .help-table th { white-space: normal; }
+}
+/* 印刷しても読める簡素な表 */
+@media print {
+  .help-nav, .help-search, .help-try, .help-tour { display: none; }
+  .help-layout { display: block; }
+  .help-table th, .help-table td { border-top: 1px solid #999; color: #000; }
+}

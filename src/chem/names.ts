@@ -1,10 +1,13 @@
 // 名前・SMILES・CAS 番号から構造を探す
 //   1. 内蔵辞書 (オフライン, 日本語名・略号も可)
+//   1'. 示性式 (CH3CH2OH, (CH3)2CHOH, PhCHO …, オフライン)
 //   2. SMILES / InChI / Molfile として解釈 (オフライン, RDKit)
-//   3. 日本語名 → Wikidata
+//   3. 日本語の体系名 → 英語の IUPAC 名に直して OPSIN、日本語名 → Wikidata
 //   4. IUPAC 名 → OPSIN (EBI)、慣用名・CAS 番号 → PubChem
 //   5. 見つからなければ近い名前: 内蔵辞書のあいまい検索 → Wikidata の名前・別名の検索 → PubChem の入力候補
+import { condensedToSmiles } from './condensed';
 import { fuzzyDictionary, lookupDictionary } from './dictionary';
+import { jaToEnIupac } from './jaIupac';
 import { monomerNameOf } from './polymers';
 import { isValidSmiles } from './rdkit';
 
@@ -127,6 +130,8 @@ async function searchPlain(q: string, fuzzy = true): Promise<NameResult> {
   if (!q) throw new Error('名前・SMILES を入力してください');
   const dict = lookupDictionary(q);
   if (dict) return { structure: dict.smiles, source: '内蔵辞書', title: dict.names[0] };
+  const cond = condensedToSmiles(q);
+  if (cond) return { structure: cond, source: '示性式', title: q };
   if (/^InChI=/.test(q) || /M {2}END/.test(q)) return { structure: q, source: '入力' };
   if (!hasJapanese(q) && !/\s/.test(q) && !looksLikeCas(q) && (await isValidSmiles(q).catch(() => false))) {
     return { structure: q, source: 'SMILES' };
@@ -148,6 +153,12 @@ async function searchPlain(q: string, fuzzy = true): Promise<NameResult> {
 
 async function searchExactOnline(q: string): Promise<NameResult | null> {
   if (hasJapanese(q)) {
+    // 体系名 (2-メチルプロパン-2-オール、塩化ベンゾイル …) は英語に直して OPSIN へ
+    const en = jaToEnIupac(q);
+    if (en) {
+      const o = await opsinByName(en);
+      if (o) return { ...o, source: 'OPSIN (日本語名を変換)', title: en };
+    }
     const w = await wikidataByJapaneseName(q);
     if (w) return w;
     // 「〜酸エチル」などの表記ゆれのため、全角スペース等を除いて再試行

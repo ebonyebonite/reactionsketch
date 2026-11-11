@@ -10,7 +10,7 @@ import {
 import { HIGHLIGHT_COLORS, INK_COLORS, type NamedColor } from '../model/colors';
 import { reorderSelected } from '../editor/objects';
 import { fragmentAtBond } from '../editor/fragmentTool';
-import { exportCurrent } from './TopBar';
+import { exportCurrent } from '../io/exportCurrent';
 
 function Item({ children, onClick, kbd }: { children: ReactNode; onClick: () => void; kbd?: string }) {
   return (

@@ -20,6 +20,7 @@ import {
 } from '../editor/store';
 import { addCompoundNumber } from '../editor/actions';
 import { defaultBend } from '../editor/arrowUtil';
+import { usePrefs } from '../editor/prefs';
 import { computeStereo } from '../chem/stereo';
 import { findScheme, horizontalArrows, schemeRegions, type SchemeRegion } from '../model/scheme';
 
@@ -90,6 +91,7 @@ export function Canvas() {
   const showSchemes = useStore((s) => s.showSchemes);
   const doc = tab.doc;
   const view = tab.view;
+  const showGrid = usePrefs((p) => p.showGrid);
   const scene = useMemo(() => buildScene(doc), [doc]);
   const [stereoVer, setStereoVer] = useState(0);
   useEffect(() => {
@@ -1243,7 +1245,7 @@ export function Canvas() {
             <circle cx={1} cy={1} r={0.9} fill="var(--grid)" />
           </pattern>
         </defs>
-        <rect x={0} y={0} width="100%" height="100%" fill="url(#grid)" />
+        {showGrid && <rect x={0} y={0} width="100%" height="100%" fill="url(#grid)" />}
         <g transform={`translate(${view.ox} ${view.oy}) scale(${z})`}>
           <g>{schemeEls}</g>
           <g>{highlights}</g>

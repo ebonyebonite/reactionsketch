@@ -1,0 +1,28 @@
+/* 共有ダイアログ */
+.share-dialog .share-target { margin: 0 0 8px; font-size: 13px; }
+.share-link { display: flex; gap: 6px; align-items: stretch; }
+.share-url {
+  flex: 1; min-width: 0; padding: 6px 8px; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--text);
+}
+.share-url:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.share-copy { min-height: 34px; padding: 4px 12px; white-space: nowrap; }
+.share-len { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.share-more { margin-top: 10px; }
+.share-more .mini { min-height: 34px; padding: 4px 12px; }
+.share-warn {
+  margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.55;
+  border: 1px solid color-mix(in srgb, #d97706 45%, var(--border)); background: color-mix(in srgb, #f59e0b 10%, var(--panel));
+}
+.share-warn p { margin: 0; }
+.share-warn .btns { margin-top: 6px; }
+.share-empty p { margin: 0; }
+.share-note {
+  margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border);
+  font-size: 12px; line-height: 1.6; color: var(--muted);
+}
+.share-note p { margin: 0 0 4px; }
+.share-dialog .mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (pointer: coarse) {
+  .share-copy, .share-more .mini, .share-warn .mini { min-height: 40px; }
+}

@@ -1,102 +1,220 @@
-// 使い方 (ショートカット一覧)
-import { setState, useStore } from '../editor/store';
+// 使い方: 分類ごとの項目・検索・ショートカット一覧
+import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
+import './help.css';
+import { closeOverlay, setState, useStore } from '../editor/store';
+import { getCommand, runCommand } from '../editor/commands';
+import { Modal } from './Modal';
+import { HELP_CATEGORIES, HELP_TOPICS, QUICK_START, SHORTCUT_TABLE, type HelpCategory, type HelpTopic } from './helpData';
+import { matchFields, queryTerms, splitByRanges, type Range } from './paletteSearch';
 
-const ROWS: [string, string][] = [
-  ['V / E', '選択 / 消しゴム'],
-  ['1 2 3 / W H Y', '単・二重・三重結合 / くさび・破線くさび・波線'],
-  ['C', '炭素鎖 (ドラッグ)'],
-  ['B / 4 5 6 7 8', 'ベンゼン環 / 四〜八員環'],
-  ['A / F', '曲がった矢印 (電子対 / 1 電子)'],
-  ['R / P', '反応矢印 / ＋記号'],
-  ['T / N / K', '文字 / 化合物番号 / 括弧 (‡)'],
-  ['原子の上で C N O S P F H I', '元素を変更 (L = Cl, B = Br, M = Me, E = Et, Y = Ph)'],
-  ['原子の上で + - 0', '電荷 (0 で解除)'],
-  ['原子の上で : / .', '非共有電子対 / ラジカル'],
-  ['原子の上で Enter', 'ラベルを入力 (OMe, CO2Et, NHBoc …)'],
-  ['結合の上で 1 2 3 W H Y', '次数・立体を変更 (くさびの上でもう一度 W で向きを反転)'],
-  ['結合の上で D / R', '二重線の位置を切り替え / 向きを反転'],
-  ['Delete', '選択範囲 (なければカーソル下) を削除'],
-  ['Ctrl+C / Ctrl+X / Ctrl+V', 'コピー (PNG も同時にコピー) / 切り取り / 貼り付け (SMILES・Molfile も可)'],
-  ['Ctrl+D', '選択範囲を複製'],
-  ['Ctrl+F', '名前・SMILES から構造を追加 (ポリスチレン・PET・ナイロン66 などの高分子名は繰り返し単位 [ ]n で描く)'],
-  ['r 反応名', '有名な反応 (約 200 種) を反応式で追加 (r アルドール, r Suzuki)。内蔵辞書にない名前 (r ソルベー法 など) は Wikidata・Wikipedia で探し、それでもなければ名前の近い反応・その試薬や化合物を使う反応を出す。r 酢酸 + エタノール -> 酢酸エチル ; H2SO4 ; Δ のように化合物名でも書ける'],
-  ['提案 / 計算 メニュー', '上のバーの「提案」に 生成物の予測・反応機構・反応条件・逆合成・重合・係数、「計算」に 物性・スペクトル予測・高分子の計算・試薬表・塩をまとめています'],
-  ['生成物を予測', '原料と反応矢印の上下の試薬 (NaBH4・HBr・1. O3 2. Me2S・mCPBA・PCC・グリニャール試薬・Diels–Alder の相手 など) から生成物を予測して矢印の右に描く。マルコフニコフ則・ザイツェフ則・芳香族の配向性で位置を選び、1. 2. … と番号を付けた多段階の条件は順に適用する'],
-  ['物性・スペクトル予測', '分子を選んで (パネル・右クリック)、物性 (分子量・logP・TPSA・リピンスキー則・元素分析) と ¹H NMR (化学シフト・多重度・積分)・¹³C NMR・IR・MS (同位体パターン) を予測。ピークを指すと対応する原子を構造に表示し、報告書式 (δ 7.26 (d, J = 8.0 Hz, 2H) …) をコピーできる'],
-  ['逆合成を提案', '標的分子を選ぶと、1 段の切断 (グリニャール・アルドール・ウィッティヒ・エステル化・アミド化・鈴木カップリング・Diels–Alder など) と前駆体の候補を出す。「描く」で ⇒ の逆合成式と前向きの条件をキャンバスに描く'],
-  ['重合', 'モノマーを選んで「重合」。C=C は付加重合、ジカルボン酸・酸塩化物・ジエステル・ジイソシアネート と ジオール・ジアミン の 2 つを選ぶと縮合重合 (ポリエステル・ポリアミド・ポリウレタン・ポリ尿素、副生成物 H2O・HCl も)、ラクトン・ラクタム・環状エーテル・環状カーボネート・環状シロキサンは開環重合、ヒドロキシ酸・アミノ酸は自己縮合で繰り返し単位を描く'],
-  ['高分子の計算', '「計算 → 高分子の計算」で 重合度と分子量 (選んだ繰り返し単位の式量を使う)、Mn・Mw・Mz・分散度、カロザースの式とフローリー分布、共重合組成 (Mayo–Lewis・共沸組成・反応性比の代表値)、Fox の式 (Tg)、代表的な高分子の Tg・Tm・密度の表'],
-  ['色', '原子・結合・矢印・文字を選んで、パネルまたは右クリックの「色」で文字・線の色を、「強調」で後ろに蛍光ペンの色を付ける。パネルの「元素を色分け」で N 青・O 赤・S 黄・ハロゲン 緑 などに色分け。色は PNG・SVG・PDF・CDXML (ChemDraw) にも書き出す'],
-  ['図形・器具・軌道', '左のツールの 四角・楕円・矢印 と「器具・軌道」ボタン (三角フラスコ・丸底フラスコ・ビーカー・試験管・分液ろうと・冷却管・ガスバーナー、s・p・混成・sp・sp²・sp³・d 軌道)。ドラッグで大きさ、角の □ で変形、パネルで塗り・液体の色・線・向き。塗った四角は分子の後ろに描く'],
-  ['TLC・エネルギー図', '「器具・軌道」→ TLC プレート (レーン名・スポットの Rf をパネルで編集) / エネルギー図 (状態のエネルギーと遷移状態をパネルで編集。ΔE と活性化エネルギーも表示)'],
-  ['画像', '写真・スクリーンショットを Ctrl+V で貼り付け、またはキャンバスへドラッグ&ドロップ。テンプレート →「画像を挿入」'],
-  ['結合の種類', '「器具・軌道」の結合、結合のパネル・右クリックから 部分結合 (破線)・水素結合 (点線)・配位結合 (→)・中抜きくさび・太線。二重結合は「2 本目を破線」で部分二重結合 (共鳴混成体)。部分・水素・配位結合は共有結合に数えない'],
-  ['同位体', '原子に 13C・2H・18OH のように入力、または原子のパネルで質量数を選ぶ。分子式 (¹³C)・精密質量・SMILES・Molfile に反映'],
-  ['L / 選択枠', '投げ縄で囲んで選択。2 つ以上を選ぶと枠が出て、上の ○ をドラッグで回転 (15° 刻み、Alt で自由)、右下の □ で拡大縮小'],
-  ['周期表・記号', '元素ボタンの「…」で周期表 (118 元素、原子量・電気陰性度)。文字の入力中は下の記号 (°C・Δ・hν・‡・α・β …) をクリックで挿入'],
-  ['テンプレート集', 'テンプレート →「テンプレート集」で 環・複素環・アミノ酸・糖・核酸・保護基・試薬・配位子・医薬品の構造を一覧から置く (名前で絞り込み)'],
-  ['配列から構造', 'テンプレート →「ペプチド・DNA・RNA を配列から作る」。1 文字・3 文字表記の配列から構造式、分子量・等電点・ε₂₈₀、DNA の GC 含量・Tm・相補鎖'],
-  ['解析', '計算 →「官能基・部分構造検索・構造チェック」。官能基を色分け、SMARTS・SMILES・名前で部分構造を探す、原子価・ラベル・重なりのチェック。パネルの「原子の横に」で 混成・酸化数・番号を表示'],
-  ['水素の表示', '計算 →「水素を描く」で暗黙の水素を H 原子として描く (「外す」で戻す)。「末端の炭素を CH3 と書く」'],
-  ['異性体', '分子を選んで 提案 →「立体異性体を列挙」(R/S・E/Z・メソ体・鏡像体の組)、「共鳴構造」(曲がった矢印つきで ↔ に並べる)、「互変異性体」(ケト–エノール・ラクタム–ラクチム など)'],
-  ['3D 表示', '計算 →「3D 表示」(パネル・右クリックからも)。球棒・棒・空間充填・ワイヤー、ドラッグで回転、原子をクリックで距離・角度・二面角。PNG・XYZ・3D Molfile で保存'],
-  ['物性の推算', '物性・スペクトル予測の「物性」に 沸点・融点・臨界定数・生成熱 (Joback 法)、水溶解度 (ESOL)、pKa の目安と pH 7.4 での状態。「MS」にフラグメントの m/z。結合を右クリック →「この結合で開裂」で図に m/z を書く'],
-  ['書き出し・読み込み', 'ファイル → SDF・RXN で保存、SMILES・InChI・InChIKey・反応 SMILES・Molfile・SMARTS・CXSMILES をコピー、印刷 (Ctrl+P)。開く: .rxn・複数分子の .sdf・反応 SMILES の .smi'],
-  ['反応矢印の種類', '→ ⇌ ⇒ ↔ →× に加えて、破線の矢印 ⇢ (仮定の段階) と偏った平衡 (下の矢印が短い) をパネル・右クリックで選べる'],
-  ['機構を提案', '反応式 (原料 → 生成物) から曲がった矢印つきの反応機構を作って下に置く。SN1・アルドール・エステル化など 16 種は多段階、それ以外は 1 段階の矢印で表す。生成物の元素や水素が原料で足りなければ、矢印の上下の試薬 (文字の HBr・NaBH4・H3O+ や、描いた構造式) から補う。hν・ROOR・AIBN・NBS・Bu3SnH などのラジカル反応は、開始・成長・停止の連鎖機構を片羽の矢印 (電子 1 個) で描く。Br• などラジカルを描いた式も片羽の矢印で表す'],
-  ['分子を選んで 2 3 …', '反応式の係数を分子の前に書く (続けて押すと 2 桁、1 で消す)。パネル・右クリックからも入力できる'],
-  ['係数を合わせる', '反応式の係数を原子の数・電荷が左右でそろうように自動で決める。r で置いた反応式は自動で合わせる (副生成物を省いた有機反応はそのまま)'],
-  ['条件を提案', '反応式の官能基の変化 (アルコール → アルデヒドなど) から、試薬・触媒・溶媒・温度の候補を出す。「矢印に入れる」で矢印の上下に書く。内蔵辞書に同じ反応・似た変換があればその条件も'],
-  ['反応式の範囲', '反応矢印を選ぶと、原料 (緑)・生成物 (橙)・試薬 (紫) として扱う分子を枠で表示。離れた分子は ＋ でつなぐと含まれる (常に表示はパネルで切り替え)'],
-  ['塩・イオン', '検索欄に 塩化カルシウム・CaCl2・(NH4)2SO4 と入力すると、電荷をそろえてイオンの組で描く。テンプレート →「塩・イオンを作る」で陽イオン・陰イオンを選ぶ。分子を右クリック →「Na 塩」「塩酸塩」「中性に戻す」'],
-  ['原子の位置をそろえる', '反応矢印を選んで (右クリック / パネル)、生成物の向き・原子の位置を原料に合わせる'],
-  ['Ctrl+L', '反応式を自動で並べる'],
-  ['Ctrl+Enter', '曲がった矢印を適用して次の構造 (中間体・生成物) を作る'],
-  ['原子の上で *', '高分子の末端 (*) にする / 解除'],
-  ['右クリック', '原子・結合・矢印ごとのメニュー (右ドラッグは画面の移動)'],
-  ['Ctrl+Shift+K', '構造を整える (自動配置)'],
-  ['Ctrl+Z / Ctrl+Y', '元に戻す / やり直す'],
-  ['Ctrl+S / Ctrl+O', 'すべてのタブを保存 / 開く'],
-  ['Ctrl+T', '新しいタブ'],
-  ['Ctrl+0 / Ctrl+ホイール', '全体を表示 / 拡大縮小'],
-  ['スペース+ドラッグ・右ドラッグ・2 本指', '画面の移動'],
-  ['2 本指タップ・長押し (iPad)', '右クリックと同じメニュー (指した原子・結合・矢印ごとの操作、元に戻す・複製・削除)'],
-  ['3 本指タップ・左スワイプ (iPad)', '元に戻す (右スワイプでやり直す)'],
-  ['2 本指ピンチ', '拡大縮小 (描いている途中なら描きかけを取り消す)'],
-  ['矢印キー', '選択範囲を少し動かす (Shift で大きく)'],
-];
+/** 使い方を開くときに最初に見せる項目 (openHelp が置き、開いたダイアログが読んで消す) */
+let initialTopic: string | null = null;
 
-export function Help() {
+/** 使い方を開く (topicId の項目を最初に見せる)。コマンド検索から使う */
+export function openHelp(topicId?: string): void {
+  initialTopic = topicId ?? null;
+  closeOverlay();
+  setState({ helpOpen: true, contextMenu: null });
+}
+
+function takeInitialTopic(): string | null {
+  const t = initialTopic;
+  initialTopic = null;
+  return t;
+}
+
+export function Help(): JSX.Element | null {
   const open = useStore((s) => s.helpOpen);
   if (!open) return null;
-  const close = () => setState({ helpOpen: false });
+  return <HelpDialog />;
+}
+
+function mark(text: string, ranges?: Range[]): ReactNode {
+  if (!ranges?.length) return text;
+  return splitByRanges(text, ranges).map(([s, on], i) => (on ? <mark key={i}>{s}</mark> : <span key={i}>{s}</span>));
+}
+
+/** 本文の中の一致 (強調用)。語ごとに本文を探す */
+function bodyRanges(terms: string[], body: string): Range[] {
+  const out: Range[] = [];
+  for (const t of terms) {
+    const m = matchFields([t], [{ text: body, weight: 1, highlight: true }]);
+    if (m && m.score >= 40) out.push(...m.ranges);
+  }
+  return out;
+}
+
+const KEY_SPLIT = /(\s*\/\s*|\s+)/;
+
+function Keys({ text }: { text: string }) {
+  // 「Ctrl+Z / Ctrl+Y」→ <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>。日本語の説明はそのまま
   return (
-    <div className="modal-back" onClick={close}>
-      <div className="modal" role="dialog" aria-label="使い方" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h2>使い方</h2>
-          <button className="mini" onClick={close}>閉じる</button>
+    <>
+      {text.split(KEY_SPLIT).map((p, i) => {
+        if (!p.trim()) return <span key={i}>{p}</span>;
+        if (p.trim() === '/') return <span key={i} className="help-sep"> / </span>;
+        return /^[\x21-\x7e〜←→↑↓]+$|^Ctrl\+/.test(p) ? <kbd key={i}>{p}</kbd> : <span key={i}>{p}</span>;
+      })}
+    </>
+  );
+}
+
+function HelpDialog(): JSX.Element {
+  const first = useMemo(() => takeInitialTopic(), []);
+  const firstTopic = first ? HELP_TOPICS.find((t) => t.id === first) : undefined;
+  const [cat, setCat] = useState<HelpCategory>((firstTopic?.category as HelpCategory) ?? 'はじめに');
+  const [q, setQ] = useState('');
+  const [flash, setFlash] = useState<string | null>(firstTopic?.id ?? null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const close = () => setState({ helpOpen: false });
+
+  const terms = useMemo(() => queryTerms(q), [q]);
+  const hits = useMemo(() => {
+    if (!terms.length) return null;
+    const out: { t: HelpTopic; title: Range[]; body: Range[]; score: number }[] = [];
+    for (const t of HELP_TOPICS) {
+      const m = matchFields(terms, [
+        { text: t.title, weight: 1, highlight: true },
+        ...(t.keywords ?? []).map((k) => ({ text: k, weight: 0.85 })),
+        ...(t.keys ?? []).map((k) => ({ text: k, weight: 0.7 })),
+        { text: t.body, weight: 0.6 },
+        { text: t.category, weight: 0.4 },
+      ]);
+      if (m && m.score >= 25) out.push({ t, title: m.ranges, body: bodyRanges(terms, t.body), score: m.score });
+    }
+    return out.sort((a, b) => b.score - a.score);
+  }, [terms]);
+
+  // 外から開いた項目へスクロールして少し目立たせる
+  useEffect(() => {
+    if (!flash) return;
+    const el = bodyRef.current?.querySelector(`[data-topic="${flash}"]`);
+    el?.scrollIntoView({ block: 'center' });
+    const id = setTimeout(() => setFlash(null), 1600);
+    return () => clearTimeout(id);
+  }, [flash]);
+
+  const tryIt = (id: string) => {
+    close();
+    runCommand(id);
+  };
+
+  const topicCard = (t: HelpTopic, title?: Range[], body?: Range[], showCat = false) => {
+    const cmd = t.commandId ? getCommand(t.commandId) : undefined;
+    return (
+      <article key={t.id} className={`help-topic${flash === t.id ? ' flash' : ''}`} data-topic={t.id}>
+        <div className="help-topic-head">
+          <h4>{mark(t.title, title)}</h4>
+          {showCat && <span className="help-cat">{t.category}</span>}
         </div>
-        <p>
-          反応機構は「曲がった矢印」ツール (A) で、電子の出どころ (非共有電子対のある原子・結合) から行き先 (原子・結合) へドラッグします。
-          矢印は分子と一緒に動き、中央の ○ をドラッグすると曲がり具合を変えられます。反応矢印 (R) を置くと、そのまま上下に条件を入力できます。
-          矢印を描いたら「次の構造」(Ctrl+Enter) で、電子の動きどおりに結合と電荷を変えた中間体・生成物を自動で作れます。
-          反応矢印の上下の試薬の文字 (HCl など) も、曲がった矢印の始点・終点にできます。
-          「機構を提案」で、描いた反応式 (原料 → 生成物) から反応機構の案を作れます。
-          原料と試薬だけ描いて「生成物を予測」、標的分子から「逆合成を提案」、分子の「物性・スペクトル予測」(NMR・IR・MS) もできます。
-        </p>
-        <table className="keys">
-          <tbody>
-            {ROWS.map(([k, v]) => (
-              <tr key={k}>
-                <th>{k}</th>
-                <td>{v}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="tip">作業内容はブラウザに自動で保存されます。別の PC に移すときは「ファイル → すべてのタブを保存」で .rsketch ファイルを作ってください。</p>
+        <p>{mark(t.body, body)}</p>
+        {(t.keys?.length || cmd) && (
+          <div className="help-topic-foot">
+            {t.keys && <span className="help-keys">{t.keys.map((k) => <kbd key={k}>{k}</kbd>)}</span>}
+            {cmd && t.category !== 'ショートカット一覧' && (
+              <button type="button" className="mini help-try" onClick={() => tryIt(cmd.id)} disabled={!!cmd.enabled && !cmd.enabled()}>
+                やってみる
+              </button>
+            )}
+          </div>
+        )}
+      </article>
+    );
+  };
+
+  let content: ReactNode;
+  if (hits) {
+    content = hits.length ? (
+      <>
+        <p className="help-count">{hits.length} 件</p>
+        {hits.map((h) => topicCard(h.t, h.title, h.body, true))}
+      </>
+    ) : (
+      <p className="help-empty">見つかりません。別の言い方 (ひらがな・英語) でも探せます。</p>
+    );
+  } else if (cat === 'ショートカット一覧') {
+    content = (
+      <div className="help-shortcuts">
+        {SHORTCUT_TABLE.map((g) => (
+          <table key={g.title} className="help-table">
+            <caption>{g.title}</caption>
+            <tbody>
+              {g.rows.map(([k, v]) => (
+                <tr key={k}>
+                  <th scope="row"><Keys text={k} /></th>
+                  <td>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ))}
       </div>
-    </div>
+    );
+  } else {
+    content = (
+      <>
+        {cat === 'はじめに' && (
+          <section className="help-quick">
+            <h4>最短の手順</h4>
+            <ol>
+              {QUICK_START.map((s) => (
+                <li key={s.title}>
+                  <b>{s.title}</b> <span>{s.body}</span>
+                  {s.commandId && <button type="button" className="mini help-try" onClick={() => tryIt(s.commandId!)}>やってみる</button>}
+                </li>
+              ))}
+            </ol>
+            <button type="button" className="mini primary help-tour" onClick={() => tryIt('help.tour')}>はじめてガイドを見る</button>
+          </section>
+        )}
+        {HELP_TOPICS.filter((t) => t.category === cat).map((t) => topicCard(t))}
+      </>
+    );
+  }
+
+  return (
+    <Modal
+      title="使い方"
+      onClose={close}
+      size="lg"
+      className="help-modal"
+      initialFocus={searchRef}
+      headExtra={
+        <input
+          ref={searchRef}
+          type="search"
+          className="help-search"
+          placeholder="使い方を検索 (例: くさび, 係数, png)"
+          aria-label="使い方を検索"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      }
+    >
+      <div className="help-layout">
+        <nav className="help-nav" aria-label="分類">
+          {HELP_CATEGORIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={`help-nav-item${!hits && cat === c ? ' on' : ''}`}
+              aria-current={!hits && cat === c ? 'true' : undefined}
+              onClick={() => {
+                setQ('');
+                setCat(c);
+                bodyRef.current?.scrollTo?.({ top: 0 });
+              }}
+            >
+              {c}
+            </button>
+          ))}
+        </nav>
+        <div className="help-body" ref={bodyRef}>
+          {!hits && <h3 className="help-h">{cat}</h3>}
+          {content}
+        </div>
+      </div>
+    </Modal>
   );
 }

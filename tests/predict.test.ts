@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { predictProducts } from '../src/chem/predict';
+import { identifyReaction, predictAlternatives, predictProducts } from '../src/chem/predict';
 import { retrosynthesis } from '../src/chem/retro';
 import { canonicalizer } from '../src/chem/propose';
 
@@ -27,6 +27,19 @@ const cases: [string, string[], string, string[]][] = [
   ['還元的アミノ化', ['O=C1CCCCC1', 'NCc1ccccc1'], 'NaBH(OAc)3, AcOH', ['c1ccc(CNC2CCCCC2)cc1']],
   ['NBS アリル位', ['C1=CCCCC1'], 'NBS\nhν, CCl4', ['BrC1C=CCCC1']],
   ['バイヤー・ビリガー', ['O=C1CCCCC1'], 'mCPBA', ['O=C1CCCCCO1']],
+  // 以下は辞書にない基質での確認 (汎用テンプレート)
+  ['スワーン酸化', ['CC(C)CCO'], '1. (COCl)2, DMSO, −78 °C\n2. Et3N', ['CC(C)CC=O']],
+  ['チオールの酸化', ['SCc1ccccc1'], 'I2\nH2O', ['S(SCc1ccccc1)Cc1ccccc1']],
+  ['第二級アルコールの酸化 (Na2Cr2O7)', ['CC(O)CC'], 'Na2Cr2O7\nH2SO4, H2O', ['CCC(C)=O']],
+  ['第三級アルコール + HCl', ['CCC(C)(C)O'], 'HCl\nEt2O', ['CCC(C)(C)Cl']],
+  ['SN1 加水分解', ['CCC(C)(C)Br'], 'H2O', ['CCC(C)(C)O']],
+  ['エナミン生成', ['O=C1CCCC1', 'C1CCNCC1'], 'TsOH (cat.)\n−H2O', ['C1CCN(CC1)C1=CCCC1']],
+  ['ウォルフ・キッシュナー (KOH + Δ でもアルドールにならない)', ['CC(=O)c1ccc(C)cc1'], 'H2NNH2, KOH\nエチレングリコール, Δ', ['CCc1ccc(C)cc1']],
+  ['ストレッカー (NH4Cl + KCN)', ['CC(C)CC=O'], '1. NH4Cl, KCN\n2. H3O+', ['CC(C)CC(N)C(=O)O']],
+  ['交差アルドール (クライゼン・シュミット)', ['O=Cc1ccc(C)cc1', 'CC(=O)CC'], 'NaOH\nEtOH', ['CCC(=O)/C=C/c1ccc(C)cc1']],
+  ['パール・クノール', ['CC(=O)CCC(C)=O', 'NCc1ccccc1'], 'AcOH\nΔ', ['Cc1ccc(C)n1Cc1ccccc1']],
+  ['コーリー・チャイコフスキー', ['CC(=O)c1ccccc1'], '(CH3)3S(O)I, NaH\nDMSO', ['CC1(CO1)c1ccccc1']],
+  ['ヒドロホウ素化 (環状トリ置換アルケン: 少ない側)', ['CC1=CCCC1'], '1. BH3, THF\n2. H2O2, NaOH', ['C[C@@H]1CCC[C@H]1O']],
 ];
 
 describe('生成物の予測', () => {
@@ -40,6 +53,28 @@ describe('生成物の予測', () => {
   it('テンプレートに合わない組み合わせは null', async () => {
     expect(await predictProducts(['CCCC'], 'NaBH4')).toBeNull();
   });
+});
+
+describe('候補と反応の判定', () => {
+  it('predictAlternatives: 先頭は predictProducts と同じ、ヒドロホウ素化はマルコフニコフ側が副の候補', async () => {
+    const canon = await canonicalizer();
+    const r = ['CCC(C)=C'];
+    const t = '1. BH3, THF\n2. H2O2, NaOH';
+    const main = await predictProducts(r, t);
+    const alts = await predictAlternatives(r, t);
+    expect(alts.length).toBeGreaterThanOrEqual(2);
+    expect(alts[0].products.map(canon)).toEqual(main!.products.map(canon));
+    expect(alts.slice(1).some((a) => a.products.map(canon).includes(canon('CCC(C)(C)O')))).toBe(true);
+    expect(await predictAlternatives(['CCCC'], 'NaBH4')).toEqual([]);
+  }, 30000);
+
+  it('identifyReaction: 描かれた反応のテンプレートを当てる', async () => {
+    const hit = await identifyReaction(['CC(=O)c1ccccc1'], ['CC(O)c1ccccc1'], 'NaBH4');
+    expect(hit).not.toBeNull();
+    expect(hit!.name).toMatch(/NaBH4/);
+    expect(hit!.exact).toBe(true);
+    expect(await identifyReaction(['CCO'], ['c1ccccc1'])).toBeNull();
+  }, 30000);
 });
 
 describe('逆合成の提案', () => {
